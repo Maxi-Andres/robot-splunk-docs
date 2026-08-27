@@ -18,6 +18,7 @@ antes.
 | En qué estado quedó todo y cómo seguir | **`ESTADO-Y-CONTINUACION.md`** — traspaso del 2026-08-20 |
 | Cómo se opera el robot desde cualquier red | `ARQUITECTURA-REMOTA.md` |
 | Qué IP es cada una y en qué archivo se cambia | `IPS-Y-DONDE-CAMBIARLAS.md` — regenerable con un grep |
+| Cómo actualizar el robot después del renombre | **`REDEPLOY-EN-EL-ROBOT.md`** — pendiente de ejecutar |
 
 ## Los documentos, por tipo
 
@@ -49,6 +50,9 @@ antes.
 
 - `IMPLEMENTACION.md` — guía paso a paso con criterio de éxito por etapa. La regla que la
   ordena: nada toca el robot hasta la Etapa D.
+- `REDEPLOY-EN-EL-ROBOT.md` — cómo poner el robot al día después del renombre del 27-08:
+  qué dos archivos rescatar antes del `rm -rf`, y las unidades systemd nuevas. **Pendiente
+  de ejecutar**: el robot no estaba disponible cuando se escribió.
 
 Relacionado, pero fuera de este repo: el diagnóstico de por qué el robot deja de transmitir
 video después de un rato está en `AI-VL-ecosystem/docs/CORTES_DE_VIDEO_Y_SOBRECALENTAMIENTO.md`.

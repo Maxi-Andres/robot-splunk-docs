@@ -334,7 +334,7 @@ Decisiones y por qué:
 - **Todo por env vars** (`ROBOT_NAME`, `ROBOT_TYPE`, `DDS_IFACE`, `HEC_URL`, `HEC_TOKEN`,
   `RATE_*`, `DAILY_BYTE_CAP`, `SPOOL_MB`): es lo que permite correrlo en el robot, en esta PC o
   en una VM **sin cambiar código**.
-- **systemd con `Restart=always`**, igual que `robot-nvr.service`, que ya demostró recuperarse
+- **systemd con `Restart=always`**, igual que `robot-video-pipeline.service`, que ya demostró recuperarse
   solo cuando el robot se cae y vuelve.
 
 ### 7.3. Reglas de convivencia con el robot
