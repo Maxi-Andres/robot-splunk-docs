@@ -24,7 +24,7 @@ afuera. Nada entra al robot: ni un puerto abierto, ni IP fija.
 
 | Agente | Qué hace | Servicio systemd |
 |---|---|---|
-| Telemetría | lee `rt/lf/lowstate` por DDS → HTTP al HEC de Splunk | `robot-splunk-bridge` |
+| Telemetría | lee `rt/lf/lowstate` por DDS → HTTP al HEC de Splunk | `robot-telemetry-agent` |
 | Video | lee la cámara por DDS → MJPEG por HTTP + H.264 por RTMP | `robot-video` |
 | Comandos | recibe HTTP → publica DDS localmente | `robot-command-relay` |
 
@@ -47,7 +47,7 @@ Detalle en `RED-Y-DDS.md`. Eso es lo que permite que el robot esté en cualquier
 | SSH al robot | `unitree` / password `123` ⚠️ **cambiarla, hay tokens adentro** |
 | Splunk | índice `go2-robot-data`, token `Go2-01` |
 
-Repos en el robot: `~/robot-splunk-bridge`, `~/robot-nvr-bridge`, `~/unitree_sdk2` (upstream).
+Repos en el robot: `~/robot-telemetry-agent`, `~/robot-video-pipeline`, `~/unitree_sdk2` (upstream).
 **Los dos primeros compilan C++ y los dos necesitan `./build.sh` tras un `git pull`.**
 
 ---
@@ -229,8 +229,10 @@ una de las dos. Hoy el vivo toma "el más nuevo" y la grabación toma "uno cada 
 
 | Repo | Remoto |
 |---|---|
-| `~/Desktop/robot-splunk-bridge` | `github.com/Maxi-Andres/IA-splunk-bridge` |
-| `~/Desktop/robot-nvr-bridge` | `github.com/Maxi-Andres/AI-ROBOT-NVR` |
+| `~/Desktop/robot-ecosystem/robot-splunk-docs` | `github.com/Maxi-Andres/robot-splunk-docs` |
+| `~/Desktop/robot-ecosystem/robot-video-pipeline` | `github.com/Maxi-Andres/robot-video-pipeline` |
+| `~/Desktop/robot-ecosystem/robot-telemetry-agent` | `github.com/Maxi-Andres/robot-telemetry-agent` |
+| `~/Desktop/robot-ecosystem/robot-command-relay` | `github.com/Maxi-Andres/robot-command-relay` |
 | `~/Desktop/AI-VL-ecosystem/*` | tres repos separados |
 | `~/Desktop/unitree_ros2` | el fork de Unitree con el executor y el bridge de cámara |
 

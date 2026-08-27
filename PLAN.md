@@ -155,9 +155,9 @@ del SDK nativo, el ROS2 Foxy pelado de PC2 deja de ser un problema (§7.1).
 
 | Pieza | Dónde | Estado |
 |---|---|---|
-| Captura de video del robot → RTSP/HLS/WebRTC | `robot-nvr-bridge` (mediamtx + ffmpeg) | Funcionando, con systemd y auto-reinicio |
-| NVR con grabación continua y timeline | `robot-nvr-bridge/frigate` | Funcionando, 3 días de retención |
-| Patrón de compilación contra el SDK | `robot-nvr-bridge/build.sh` | Probado en Ubuntu 26.04 |
+| Captura de video del robot → RTSP/HLS/WebRTC | `robot-video-pipeline` (mediamtx + ffmpeg) | Funcionando, con systemd y auto-reinicio |
+| NVR con grabación continua y timeline | `robot-video-pipeline/frigate` | Funcionando, 3 días de retención |
+| Patrón de compilación contra el SDK | `robot-video-pipeline/build.sh` | Probado en Ubuntu 26.04 |
 | **Libs del SDK para aarch64** | `unitree_sdk2/lib/aarch64/` + `thirdparty/lib/aarch64/` | Precompiladas; el `CMakeLists.txt` elige por arquitectura |
 | Tipos de mensaje de **los dos** robots | `unitree_sdk2/include/unitree/idl/{go2,hg}/` | `LowState_`, `IMUState_`, `BmsState_`, `MotorState_`, `SportModeState_` |
 | Transporte DDS parametrizado | `unitree_ros2/setup.sh` + `dds.env` | Referencia de config |
@@ -201,7 +201,7 @@ sin pisarse.
 
 **Pero sigue siendo un problema para todo lo demás.** Si los dos robots se conectan a la vez a
 la misma LAN local, sigue habiendo conflicto de IP para el pipeline de video y para AI-VL, que
-leen DDS desde afuera del robot. Ese tema sigue abierto en `robot-nvr-bridge/docs/DOS-ROBOTS.md`.
+leen DDS desde afuera del robot. Ese tema sigue abierto en `robot-video-pipeline/docs/DOS-ROBOTS.md`.
 Este plan lo **esquiva**, no lo arregla.
 
 ---
@@ -297,7 +297,7 @@ Notas de diseño:
 
 | | SDK nativo (C++) | ROS2 (rclpy) |
 |---|---|---|
-| Corre en Ubuntu 26.04 (esta PC) | Sí, probado en `robot-nvr-bridge` | No — solo en Docker (7,67 GB) |
+| Corre en Ubuntu 26.04 (esta PC) | Sí, probado en `robot-video-pipeline` | No — solo en Docker (7,67 GB) |
 | **Corre en el Jetson del robot** | **Sí: libs aarch64 precompiladas en el repo** | PC2 tiene Foxy pelado, sin CycloneDDS como RMW ni los msgs de Unitree |
 | Dependencias a instalar en el robot | El SDK y nada más | ROS2 + CycloneDDS 0.10.x + 3 paquetes de msgs compilados |
 | Tipos de los dos robots | `idl/go2/` y `idl/hg/`, ya en el repo | Hay que buildear `unitree_go` + `unitree_hg` + `unitree_api` |
@@ -360,7 +360,7 @@ en silencio.
 
 ### 7.5. Dónde vive el código
 
-Repo nuevo `robot-splunk-bridge`, hermano de los otros en `~/Desktop`, con dos targets de build
+Repo nuevo `robot-telemetry-agent`, hermano de los otros en `~/Desktop`, con dos targets de build
 (x86_64 para pruebas locales, aarch64 para el robot). **Código y comentarios en inglés**
 (convención del ecosistema); los docs de planificación en castellano.
 
@@ -434,7 +434,7 @@ no un problema de token ni de red.
 ## 10. Video
 
 **Hoy ya funciona y cuesta 0 MB de licencia**, con el robot en la LAN local: mediamtx expone HLS
-`:8888` y WebRTC `:8889` desde `robot-nvr-bridge`, y el panel es un `<iframe>` a
+`:8888` y WebRTC `:8889` desde `robot-video-pipeline`, y el panel es un `<iframe>` a
 `http://192.168.123.99:8889/robot`.
 
 Dos avisos de Splunk:

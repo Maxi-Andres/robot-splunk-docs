@@ -5,7 +5,7 @@ otro de la red**, por qué los dos robots no pueden convivir en el mismo segment
 verificado y qué no.
 
 Aplica a cualquier cosa que lea datos del robot: el bridge de telemetría a Splunk
-(`PLAN.md`), el pipeline de video (`robot-nvr-bridge`) y AI-VL.
+(`PLAN.md`), el pipeline de video (`robot-video-pipeline`) y AI-VL.
 
 Última actualización: 2026-08-19 (se agregó §8.2-§8.4: el caso de robots en
 cualquier red).
@@ -128,7 +128,7 @@ necesita rutear nada. Te contesta directo por ARP, sin gateway, sin depender de 
 | **Go2** (perro) | `192.168.123.161` | `192.168.123.18` |
 | **G1** (humanoide) | `192.168.123.161` | `192.168.123.164` |
 
-Esto **resuelve una contradicción** entre documentos viejos: `robot-nvr-bridge/docs/DOS-ROBOTS.md`
+Esto **resuelve una contradicción** entre documentos viejos: `robot-video-pipeline/docs/DOS-ROBOTS.md`
 dice "Go2 = `.161`, G1 = `.164`", y una medición posterior encontró al G1 Pro en `.161`. Las dos
 cosas eran ciertas **sobre interfaces distintas**: `.161` es el bajo nivel de **los dos** robots,
 y solo difiere el alto nivel. (Ese doc habría que corregirlo.)
@@ -353,15 +353,15 @@ ahí.
 - [ ] Cómo se separan los dos robots si están los dos en la LAN local (el conflicto de `.161`
       sigue vivo ahí).
 - [ ] Validar el CURWB con el cable desenchufado.
-- [ ] Corregir la tabla de IPs de `robot-nvr-bridge/docs/DOS-ROBOTS.md` y revisar sus conclusiones
+- [ ] Corregir la tabla de IPs de `robot-video-pipeline/docs/DOS-ROBOTS.md` y revisar sus conclusiones
       a la luz del conflicto de `.161`.
 
 ## 10. Documentos relacionados
 
 | Doc | Qué tiene |
 |---|---|
-| `SplunkCode/PLAN.md` | El plan de telemetría a Splunk que se apoya en este documento |
-| `robot-nvr-bridge/docs/ARQUITECTURA.md` | El pipeline de video que ya funciona, y el detalle del `CYCLONEDDS_URI` |
-| `robot-nvr-bridge/docs/DOS-ROBOTS.md` | Investigación de separar los dos robots — **tabla de IPs desactualizada**, y su "Opción A" quedó invalidada por §4 |
+| `robot-splunk-docs/PLAN.md` | El plan de telemetría a Splunk que se apoya en este documento |
+| `robot-video-pipeline/docs/ARQUITECTURA.md` | El pipeline de video que ya funciona, y el detalle del `CYCLONEDDS_URI` |
+| `robot-video-pipeline/docs/DOS-ROBOTS.md` | Investigación de separar los dos robots — **tabla de IPs desactualizada**, y su "Opción A" quedó invalidada por §4 |
 | `AI-VL-ecosystem/docs/SEPARAR_ROBOTS_MULTIPLES.md` | La misma discusión del lado de los comandos; su "Opción B" (por interfaz) es el camino que sobrevive |
 | `unitree_ros2/dds.env.example` | Los dos knobs del transporte DDS, documentados |

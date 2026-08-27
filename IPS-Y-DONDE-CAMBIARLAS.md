@@ -6,7 +6,7 @@ Generado el 2026-08-19 grepeando los repos, no de memoria. Regenerable con:
 cd ~/Desktop && grep -rnoE "192\.168\.[0-9]+\.[0-9]+|10\.1\.254\.[0-9]+" \
   --include="*.sh" --include="*.yml" --include="*.yaml" --include="*.service" \
   --include="*.py" --include="*.cpp" --include="*.xml" --include="*.env" \
-  robot-nvr-bridge robot-splunk-bridge unitree_ros2 SplunkCode | sort -u
+  robot-video-pipeline robot-telemetry-agent unitree_ros2 robot-splunk-docs | sort -u
 ```
 
 ---
@@ -43,11 +43,11 @@ Es la que más duele porque aparece repartida. Hoy `192.168.20.99`.
 
 | Archivo | Línea | Qué es | Efecto si queda mal |
 |---|---|---|---|
-| `robot-nvr-bridge/frigate/config/config.yml` | 18 | de dónde Frigate lee el RTSP | **No graba** |
-| `robot-nvr-bridge/robot/robot-video.service` | 16 | `PUBLISH_HOST` — a dónde publica el robot | **No llega el video** |
-| `robot-nvr-bridge/frigate/docker-compose.yml` | 4-5 | solo comentarios (URLs de la UI) | cosmético |
-| `robot-nvr-bridge/frigate/config/backup_config.yaml` | 18 | copia de respaldo, sin uso | ninguno |
-| `SplunkCode/dashboard-go2.xml` | 108, 111 | iframe y link del panel de video | **panel negro** |
+| `robot-video-pipeline/frigate/config/config.yml` | 18 | de dónde Frigate lee el RTSP | **No graba** |
+| `robot-video-pipeline/robot/robot-video.service` | 16 | `PUBLISH_HOST` — a dónde publica el robot | **No llega el video** |
+| `robot-video-pipeline/frigate/docker-compose.yml` | 4-5 | solo comentarios (URLs de la UI) | cosmético |
+| `robot-video-pipeline/frigate/config/backup_config.yaml` | 18 | copia de respaldo, sin uso | ninguno |
+| `robot-splunk-docs/dashboard-go2.xml` | 108, 111 | iframe y link del panel de video | **panel negro** |
 
 Y además, fuera de los archivos:
 
@@ -65,11 +65,11 @@ Hoy `192.168.20.200`.
 
 | Archivo | Línea | Qué es |
 |---|---|---|
-| `robot-splunk-bridge/systemd/robot-splunk-bridge.service` | 16 | `HEC_URL` — **el que importa**, vive en el robot |
-| `robot-splunk-bridge/poc/telemetry_poc.py` | 18 | solo un ejemplo en el docstring |
+| `robot-telemetry-agent/systemd/robot-telemetry-agent.service` | 16 | `HEC_URL` — **el que importa**, vive en el robot |
+| `robot-telemetry-agent/poc/telemetry_poc.py` | 18 | solo un ejemplo en el docstring |
 
 Después de cambiarlo: `git push` acá, y en el robot
-`git pull && sudo cp systemd/*.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart robot-splunk-bridge`.
+`git pull && sudo cp systemd/*.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart robot-telemetry-agent`.
 
 ---
 
@@ -80,8 +80,8 @@ si algún día pasara:
 
 | Archivo | Línea | Qué es |
 |---|---|---|
-| `robot-nvr-bridge/status.sh` | 6 | `ROBOT_IP`, solo para el chequeo de ping |
-| `robot-nvr-bridge/start-all.sh` | 8 | ídem |
+| `robot-video-pipeline/status.sh` | 6 | `ROBOT_IP`, solo para el chequeo de ping |
+| `robot-video-pipeline/start-all.sh` | 8 | ídem |
 | `unitree_ros2/robot_executor/.env` | 14 | IP del robot para AI-VL |
 | `unitree_ros2/robot_executor/robot_executor_service.py` | 84 | default en código |
 
@@ -91,9 +91,9 @@ si algún día pasara:
 
 | Dónde | Variable | Valor | Nota |
 |---|---|---|---|
-| `robot-nvr-bridge/run.sh` | `NIC` | `enp4s0` | la de **esta PC** hacia el robot |
-| `robot-nvr-bridge/robot/run-video.sh` | `NIC` | `eth0` | la del **robot** (bus interno) |
-| `robot-splunk-bridge/run.sh` | `DDS_IFACE` | `eth0` | ídem, en el robot |
+| `robot-video-pipeline/run.sh` | `NIC` | `enp4s0` | la de **esta PC** hacia el robot |
+| `robot-video-pipeline/robot/run-video.sh` | `NIC` | `eth0` | la del **robot** (bus interno) |
+| `robot-telemetry-agent/run.sh` | `DDS_IFACE` | `eth0` | ídem, en el robot |
 | `unitree_ros2/dds.env` | `CYCLONEDDS_IFACE` | `enp4s0` | AI-VL, en esta PC. **Es root: editar con sudo** |
 | `unitree_ros2/dds.env` | `ROBOT_DDS_PEERS` | `192.168.51.115` | ⚠️ **peer viejo del G1 por WiFi.** Vaciarlo en LAN plana |
 

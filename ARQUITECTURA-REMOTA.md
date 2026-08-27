@@ -92,7 +92,7 @@ el mediamtx de HQ. Es un servicio interno normal.
 
 ### 4.1. Telemetría a Splunk — ✅ **funcionando**
 
-Agente nativo en C++ en el Jetson (`robot-splunk-bridge`), servicio systemd. Lee
+Agente nativo en C++ en el Jetson (`robot-telemetry-agent`), servicio systemd. Lee
 `rt/lf/lowstate` y `rt/lf/sportmodestate`, extrae campos elegidos a mano, y postea al HEC de
 Splunk. **40 MB/día**, con cap propio de bytes y spool en disco para los cortes de enlace.
 
@@ -114,7 +114,7 @@ la misma red**. Hay que mover la mitad de arriba al robot:
 | `mediamtx` (servidor RTSP/HLS/WebRTC) | PC del escritorio | HQ — recibe el push |
 | `Frigate` (NVR: graba, timeline) | PC del escritorio | HQ — no cambia nada |
 
-`run.sh` de `robot-nvr-bridge` ya tiene el destino parametrizado (`RTSP=rtsp://host:8554/robot`);
+`run.sh` de `robot-video-pipeline` ya tiene el destino parametrizado (`RTSP=rtsp://host:8554/robot`);
 falta hacer opcional el mediamtx local, que hoy arranca siempre.
 
 Dos oportunidades del lado del robot: el Jetson tiene **encoder por hardware**, y el Go2

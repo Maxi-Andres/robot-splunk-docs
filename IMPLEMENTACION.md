@@ -52,11 +52,11 @@ Un script de Python que corre en el devcontainer que ya tenés andando. **No ins
 no toca el robot, y no necesita compilar.** Es descartable: sirve para probar el camino de
 datos y para tener el dashboard andando antes del 25.
 
-Archivo: `~/Desktop/robot-splunk-bridge/poc/telemetry_poc.py`
+Archivo: `~/Desktop/robot-ecosystem/robot-telemetry-agent/poc/telemetry_poc.py`
 
 **B1. Copiarlo al contenedor** (va a `/tmp`, no ensucia ningún repo):
 ```bash
-cd ~/Desktop/robot-splunk-bridge/poc
+cd ~/Desktop/robot-ecosystem/robot-telemetry-agent/poc
 docker cp telemetry_poc.py unitree_ros2_devcontainer-devcontainer-humble-1:/tmp/
 ```
 
@@ -151,7 +151,7 @@ el multicast sino que **el controlador `.161` no puede contestar hacia afuera de
 
 **C5. Volvé todo a como estaba** (C0) y verificá que el video volvió:
 ```bash
-~/Desktop/robot-nvr-bridge/status.sh
+~/Desktop/robot-ecosystem/robot-video-pipeline/status.sh
 ```
 
 **Criterio de salida:** el conteo de tópicos desde la otra subred, documentado, con y sin
@@ -165,7 +165,7 @@ peers unicast.
 binario nativo en C++: el SDK trae librerías aarch64 precompiladas y el Jetson ya tiene
 g++ 9.4 + cmake, así que **no hace falta instalar ROS2 ni nada más en el robot**.
 
-Código: `~/Desktop/robot-splunk-bridge/` (repo propio). Verificado antes de desplegar:
+Código: `~/Desktop/robot-ecosystem/robot-telemetry-agent/` (repo propio). Verificado antes de desplegar:
 el lector **compila limpio** y el shipper **pasó 4 tests** contra el HEC real (envío
 normal, spool con enlace caído, drenado al volver, y 4xx que no se reintenta).
 
@@ -175,8 +175,8 @@ Con el repo en un remoto, actualizar el robot después es `git pull` en vez de c
 archivos a mano.
 
 ```bash
-cd ~/Desktop/robot-splunk-bridge
-git remote add origin https://github.com/Maxi-Andres/IA-splunk-bridge.git
+cd ~/Desktop/robot-ecosystem/robot-telemetry-agent
+git remote add origin https://github.com/Maxi-Andres/robot-telemetry-agent.git
 git push -u origin main
 ```
 
@@ -194,13 +194,13 @@ copiar 84 MB.
 ssh unitree@192.168.123.18
 
 git clone https://github.com/unitreerobotics/unitree_sdk2.git ~/unitree_sdk2
-git clone https://github.com/Maxi-Andres/IA-splunk-bridge.git ~/robot-splunk-bridge
+git clone https://github.com/Maxi-Andres/robot-telemetry-agent.git ~/robot-telemetry-agent
 ```
 
 ### D2 — Compilar
 
 ```bash
-cd ~/robot-splunk-bridge && ./build.sh
+cd ~/robot-telemetry-agent && ./build.sh
 ```
 
 `build.sh` corre `g++` una sola vez y elige la librería del SDK según `uname -m`, así que
@@ -298,9 +298,9 @@ dashboard. Recién después, el servicio.
 Esto convierte el D5 —que muere al cerrar la terminal— en algo permanente.
 
 ```bash
-sudo cp systemd/robot-splunk-bridge.service /etc/systemd/system/
-sudo systemctl enable --now robot-splunk-bridge
-journalctl -u robot-splunk-bridge -f          # Ctrl-C corta la vista, no el servicio
+sudo cp systemd/robot-telemetry-agent.service /etc/systemd/system/
+sudo systemctl enable --now robot-telemetry-agent
+journalctl -u robot-telemetry-agent -f          # Ctrl-C corta la vista, no el servicio
 ```
 
 | Comando | Qué hace |
@@ -335,7 +335,7 @@ lleva su propio `time`. Un corte se convierte en un retraso, no en un agujero.
 ### Actualizar el agente después
 
 ```bash
-ssh unitree@192.168.123.18 'cd ~/robot-splunk-bridge && git pull && ./build.sh && sudo systemctl restart robot-splunk-bridge'
+ssh unitree@192.168.123.18 'cd ~/robot-telemetry-agent && git pull && ./build.sh && sudo systemctl restart robot-telemetry-agent'
 ```
 
 ⚠️ **El `./build.sh` no es opcional:** el binario está en `.gitignore`, así que un `git

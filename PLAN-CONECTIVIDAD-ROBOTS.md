@@ -331,10 +331,10 @@ independiente: es otro puerto del switch interno de `192.168.123.0/24`.
 |---|---|
 | `RED-Y-DDS.md` | Fundamento técnico de por qué DDS no rutea |
 | `IR1101-GO2-01-FULL.cfg` | Running-config conciliada del IR1101 — ⚠️ **referenciado pero no presente en esta máquina** |
-| `SplunkCode/PLAN.md` | Plan de telemetría — **autoridad sobre el colector y el contrato de datos** (la Fase 3 de acá no lo repite: ver §6-§7 de ese doc) |
-| `SplunkCode/CENSO-GO2.md` | Mediciones reales de tópicos del Go2 (2026-08-19) |
-| `robot-nvr-bridge/docs/ARQUITECTURA.md` | Pipeline de video funcionando |
-| `robot-nvr-bridge/docs/DOS-ROBOTS.md` | **Tabla de IPs desactualizada** — corregir |
+| `robot-splunk-docs/PLAN.md` | Plan de telemetría — **autoridad sobre el colector y el contrato de datos** (la Fase 3 de acá no lo repite: ver §6-§7 de ese doc) |
+| `robot-splunk-docs/CENSO-GO2.md` | Mediciones reales de tópicos del Go2 (2026-08-19) |
+| `robot-video-pipeline/docs/ARQUITECTURA.md` | Pipeline de video funcionando |
+| `robot-video-pipeline/docs/DOS-ROBOTS.md` | **Tabla de IPs desactualizada** — corregir |
 
 ---
 
