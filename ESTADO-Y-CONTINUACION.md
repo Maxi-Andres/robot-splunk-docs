@@ -3,6 +3,19 @@
 Documento de traspaso, escrito el **2026-08-20** al límite del contexto de la conversación
 anterior. Lo que sigue es lo que está medido, lo que está roto, y lo que sigue.
 
+> ⚠️ **Dos avisos del 2026-08-28.**
+>
+> 1. **La §7 ("Lo próximo, en orden") quedó absorbida** en `~/Desktop/.claude/ROADMAP.md`
+>    §5.2, que es ahora la autoridad sobre el orden de trabajo. Lo que sigue vigente y con
+>    valor acá es el **diagnóstico**: §4 (las restricciones medidas), §4.4 (el síntoma
+>    abierto), §4.5 y §8 (las trampas), §6 (lo descartado).
+> 2. **El enlace cambió y eso toca las mediciones.** Todo lo de §4 se midió sobre
+>    **Starlink**. En pruebas posteriores Starlink mostró lo que parecía un cuello de
+>    botella y **con LTE funcionó perfecto** (observación preliminar, falta seguir
+>    probando). Antes de actuar sobre §4.1 (los ~353 kB/s) o §4.4 (las ráfagas de
+>    keyframe), **re-medir con `iperf3` y reproducir el síntoma sobre LTE** — puede que la
+>    causa fuera el enlace y no el encoder. Ver ROADMAP.md §10.
+
 Lectura previa recomendada, en este orden:
 `RED-Y-DDS.md` (por qué el diseño es así) → `ARQUITECTURA-REMOTA.md` (la arquitectura) →
 `IPS-Y-DONDE-CAMBIARLAS.md` (dónde está cada cosa) → este documento.

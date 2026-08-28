@@ -102,10 +102,18 @@ de 25% / 256 MB. Invisible para el robot.
 Verificado con la PC del escritorio en otra VLAN sin ver un solo tópico DDS: los datos
 llegaron igual.
 
-### 4.2. Video — **lo próximo**
+### 4.2. Video — **construido, sin validar** (corregido 2026-08-28)
 
-Hoy la captura corre en la PC del escritorio y lee DDS, así que **exige que el robot esté en
-la misma red**. Hay que mover la mitad de arriba al robot:
+> Esta sección decía *"hoy la captura corre en la PC del escritorio"* y *"falta hacer opcional
+> el mediamtx local"*. Las dos cosas están hechas: `robot-video-pipeline/robot/run-video.sh`
+> captura y encodea **en el Jetson** con `nvv4l2h264enc` (encoder por hardware) y empuja por
+> RTMP, y `run.sh` acepta `SERVER_ONLY=1` para levantar mediamtx sin captura local.
+>
+> Lo que falta no es construir, es **validar**: hoy el stream está caído (Frigate reporta
+> `camera_fps: 0`) y queda abierto el congelamiento de ~1 s cada ~4 s. Orden de trabajo en
+> **`~/Desktop/.claude/ROADMAP.md`** §5.2.
+
+La tabla del movimiento, que ya se ejecutó:
 
 | Pieza | Hoy | Va a quedar |
 |---|---|---|
@@ -114,8 +122,10 @@ la misma red**. Hay que mover la mitad de arriba al robot:
 | `mediamtx` (servidor RTSP/HLS/WebRTC) | PC del escritorio | HQ — recibe el push |
 | `Frigate` (NVR: graba, timeline) | PC del escritorio | HQ — no cambia nada |
 
-`run.sh` de `robot-video-pipeline` ya tiene el destino parametrizado (`RTSP=rtsp://host:8554/robot`);
-falta hacer opcional el mediamtx local, que hoy arranca siempre.
+`run.sh` de `robot-video-pipeline` tiene el destino parametrizado
+(`RTSP=rtsp://host:8554/robot`) y el modo `SERVER_ONLY=1`, que levanta mediamtx sin captura
+local. **Pendiente operativo:** la unidad de usuario que corre hoy **no** tiene
+`SERVER_ONLY=1`, así que entra en modo captura local y reintenta en loop cada ~11 s.
 
 Dos oportunidades del lado del robot: el Jetson tiene **encoder por hardware**, y el Go2
 genera **H.264 nativo** en `rt/frontvideostream`. El fracaso conocido de ese tópico fue

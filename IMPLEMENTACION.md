@@ -5,13 +5,23 @@ Pensada para ejecutarla **vos**, en orden, entendiendo qué prueba cada paso.
 **Regla que ordena todo: nada toca el robot hasta la Etapa D.** Las tres primeras etapas
 corren en esta PC y en Splunk. Si algo falla, falla acá, no en el robot.
 
-Estado a 2026-08-19: **Etapa B ya validada** (ver abajo). El bloqueo real es la Etapa A.
+> ⚠️ **Estado corregido el 2026-08-28.** Este documento decía que la Etapa A era *"el único
+> bloqueo real"* y que faltaba el agente. Las dos cosas están hechas: el HEC responde
+> `{"text":"HEC is healthy","code":17}` y el agente existe en `robot-telemetry-agent`.
+> El bloqueo hoy es otro: **el robot está apagado** y falta correr
+> `REDEPLOY-EN-EL-ROBOT.md`. Estado y orden actualizados en
+> **`~/Desktop/.claude/ROADMAP.md`** §4 y §5.1.
+>
+> Los pasos de abajo siguen siendo el runbook correcto; lo que está vencido es el *estado*.
+
+Estado a 2026-08-19: **Etapa B ya validada** (ver abajo).
 
 ---
 
-## Etapa A — Habilitar el HEC en Splunk  ⬅️ **el único bloqueo real**
+## Etapa A — Habilitar el HEC en Splunk  ✅ **hecho** (verificado 2026-08-28)
 
-Es lo único que no puedo hacer yo: necesita admin en Splunk. Todo lo demás está probado.
+Necesitaba admin en Splunk. Ya está: el puerto 8088 responde y el HEC se reporta sano.
+Se conserva el procedimiento por si hay que rehacerlo o replicarlo para el G1.
 
 **A1. Habilitar el HEC**
 En Splunk (`https://192.168.20.200:8000`): **Settings → Data Inputs → HTTP Event
@@ -351,16 +361,24 @@ y a un reinicio del robot.
 |---|---|
 | Censo de tópicos del Go2 | `CENSO-GO2.md` — 122 tópicos, tasas y tamaños reales |
 | Inventario del Jetson | `PLAN.md` §2.3 — viable, con toolchain y 429 GB libres |
-| Camino Jetson → Splunk | 0,74 ms, verificado. Solo falta el 8088 |
+| Camino Jetson → Splunk | 0,74 ms, verificado |
 | Camino Jetson → DDS (`.161`) | 0,25 ms, mismo L2 |
 | VPN del robot a HQ | Ya operativa (IR1101 → Meraki MX) |
 | El colector de prueba | Escrito y **validado en seco contra el robot real** |
 | Volumen real | **40,0 MB/día medidos** = 8% del presupuesto |
+| **HEC habilitado (Etapa A)** | ✅ verificado 2026-08-28: sano en `192.168.20.200:8088` |
+| **Agente nativo (Etapa D)** | ✅ escrito: `telemetry_reader.cpp` + `hec_shipper.py` + unidad systemd |
 
 ## Lo que falta, en orden
 
-1. **Habilitar el HEC** (Etapa A) — bloquea todo lo demás.
-2. Correr el PoC contra Splunk (B3) y armar el dashboard.
-3. La prueba de la otra subred (Etapa C) — cuando quieras, no bloquea.
-4. El agente nativo en el robot (Etapa D) — después del 25 está bien.
-5. Cambiar la password del Jetson antes de dejar un token ahí.
+Lista corregida el 2026-08-28. La versión anterior ponía primero dos cosas que ya estaban
+hechas (habilitar el HEC, escribir el agente). Autoridad: `~/Desktop/.claude/ROADMAP.md` §5.1.
+
+1. **Ejecutar `REDEPLOY-EN-EL-ROBOT.md`** — los clones en el robot tienen los nombres de
+   antes del renombre del 27-08. Bloquea todo lo de campo. Necesita el robot prendido.
+2. **Validación end-to-end**: correr el agente contra el HEC real y confirmar que llegan
+   eventos al índice `go2-robot-data`. Nunca se hizo.
+3. Cargar el dashboard y autorizar `http://192.168.20.99:5000` en *Dashboards Trusted Domains*.
+4. Cambiar la password del Jetson **antes** de dejar el token ahí.
+5. Abrir tcp/8088 hacia `10.1.254.0/24` en el firewall de HQ — solo para el robot en campo.
+6. La prueba de la otra subred (Etapa C) — cuando quieras, no bloquea.

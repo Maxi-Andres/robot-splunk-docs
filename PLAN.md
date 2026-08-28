@@ -1,12 +1,19 @@
 # Plan de telemetría de robots Unitree → Splunk
 
-Revisión del plan original (`Telemetria-Splunk.md`) contra el estado real del stack.
-Fundamento técnico de red y DDS: **`RED-Y-DDS.md`**. Mediciones: **`CENSO-GO2.md`**.
-Red, VPN y transporte: **`PLAN-CONECTIVIDAD-ROBOTS.md`** (es la autoridad sobre esa capa; este
-documento es la autoridad sobre el colector y el contrato de datos).
+Autoridad sobre **el colector y el contrato de datos**. Fundamento técnico de red y DDS:
+**`RED-Y-DDS.md`**. Mediciones: **`CENSO-GO2.md`**. Red, VPN y transporte:
+**`PLAN-CONECTIVIDAD-ROBOTS.md`** (autoridad sobre esa capa).
+
+> ⚠️ **El estado que declara este documento está vencido; el diseño no.** Las tablas de §3
+> se escribieron cuando el agente no existía y el HEC estaba cerrado — hoy las dos cosas
+> cambiaron (ver §3.2). El **estado real y qué falta** vive en
+> **`~/Desktop/.claude/ROADMAP.md`** §5.1. Este archivo sigue siendo la autoridad sobre el
+> *contrato* (§6), el agente (§7) y las restricciones (§5).
 
 - Creado: 2026-08-18
 - **Revisado 2026-08-19: cambio de premisa mayor — ver §0.**
+- Estado corregido el 2026-08-28. El plan original (`Telemetria-Splunk.md`), que este
+  documento revisaba, se borró ese día por estar superado; está en el historial de git.
 
 ---
 
@@ -163,17 +170,19 @@ del SDK nativo, el ROS2 Foxy pelado de PC2 deja de ser un problema (§7.1).
 | Transporte DDS parametrizado | `unitree_ros2/setup.sh` + `dds.env` | Referencia de config |
 | Camino de esta PC a Splunk | verificado 2026-08-18 | vía `192.168.123.1`, **0.55 ms**, 8000 y 8089 abiertos |
 
-### 3.2. Falta, y hay que construirlo
+### 3.2. Estado — corregido el 2026-08-28
 
-| Falta | Comentario |
+Esta tabla decía que el agente no existía y que el HEC estaba cerrado. Las dos cosas eran
+verdad cuando se escribió y ya no lo son.
+
+| Pieza | Estado real (2026-08-28) |
 |---|---|
-| **El agente de telemetría** | No existe nada. Hoy **nada del stack lee `/lowstate`**. Código nuevo de verdad. |
-| **HEC habilitado en Splunk** | Puerto 8088 **cerrado** — verificado. Primera acción del lado de Splunk. |
-| Index + token HEC | No creados. |
-| Abrir tcp/8088 hacia `10.1.254.0/24` en el firewall de HQ | El transporte ya existe (VPN del IR1101, §8); solo falta el puerto |
-
-
-| Dashboard | No existe. |
+| **El agente de telemetría** | **Construido.** `robot-telemetry-agent/src/telemetry_reader.cpp` lee `LowState`, `shipper/hec_shipper.py` postea al HEC, y hay unidad systemd. *(Antes: "no existe nada, nada del stack lee `/lowstate`".)* |
+| **HEC habilitado en Splunk** | **Abierto y sano.** `192.168.20.200:8088` responde `{"text":"HEC is healthy","code":17}`. *(Antes: "puerto 8088 cerrado — verificado".)* Dejó de ser el bloqueo. |
+| Index + token HEC | Sin verificar. El token va a `~/.splunk_hec_token` en el robot, modo 600 |
+| Validación end-to-end | **Pendiente** — nunca se confirmó que lleguen eventos al índice `go2-robot-data`. Es el único paso que queda |
+| Abrir tcp/8088 hacia `10.1.254.0/24` en el firewall de HQ | Pendiente. Solo hace falta para el robot en campo: desde la LAN ya anda |
+| Dashboard | `dashboard-go2.xml` y `dashboard-go2-sin-video.xml` existen en este repo. Falta cargarlos y autorizar `http://192.168.20.99:5000` en *Dashboards Trusted Domains* |
 
 ### 3.3. Cosas descartadas (y por qué)
 

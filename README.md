@@ -14,8 +14,9 @@ antes.
 
 | Si querés saber… | Leé |
 |---|---|
+| **Qué hay que hacer y en qué orden** | **`~/Desktop/.claude/ROADMAP.md`** — la fuente de la verdad, para todo el workspace. Los documentos de acá son el *por qué*, no el *qué* |
 | Por qué el DDS no se puede leer desde otra subred, y por qué los dos robots no pueden convivir en un segmento | **`RED-Y-DDS.md`** — el documento fundacional, el más citado |
-| En qué estado quedó todo y cómo seguir | **`ESTADO-Y-CONTINUACION.md`** — traspaso del 2026-08-20 |
+| El diagnóstico del video: las tres restricciones medidas y el síntoma abierto | **`ESTADO-Y-CONTINUACION.md`** — traspaso del 2026-08-20. Su §7 quedó absorbida en ROADMAP.md §5.2 |
 | Cómo se opera el robot desde cualquier red | `ARQUITECTURA-REMOTA.md` |
 | Qué IP es cada una y en qué archivo se cambia | `IPS-Y-DONDE-CAMBIARLAS.md` — regenerable con un grep |
 | Cómo actualizar el robot después del renombre | **`REDEPLOY-EN-EL-ROBOT.md`** — pendiente de ejecutar |
@@ -41,10 +42,11 @@ antes.
   estado real y lo que falta por capacidad.
 - `PLAN-CONECTIVIDAD-ROBOTS.md` — plan de conectividad: IR1101, red de robots, transporte
   DDS, pipeline a Splunk.
-- `PLAN.md` — plan de telemetría contrastado con el estado real del stack. Autoridad sobre el
-  colector y el contrato de datos.
-- `Telemetria-Splunk.md` — el plan original (G1 + Go2). Superado por `PLAN.md`; se conserva
-  como referencia de lo que se pensaba al principio.
+- `PLAN.md` — autoridad sobre el **contrato de datos y el agente**. Su §3 de estado está
+  corregida: el agente existe y el HEC está abierto.
+- `Telemetria-Splunk.md` — **borrado el 2026-08-28.** Era el plan original (G1 + Go2), ya
+  superado por `PLAN.md`, y sus checkboxes vivos confundían a quien lo abría directo. Está en
+  el historial de git.
 
 **Ejecución**
 
