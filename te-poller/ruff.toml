@@ -12,6 +12,7 @@ select = ["E", "W", "F", "I", "UP", "B", "SIM", "FA", "S", "RUF"]
 ignore = [
   "S101",    # assert: that is what the tests are made of
   "S310",    # urlopen against a configured API base, not user input — same call as the shipper's
+  "S603",    # subprocess in the pipe-safety test: the argv is a literal built in the test
   "S108",    # /var/tmp for the spool and the state file: chosen so a runaway cannot fill $HOME
   "RUF001", "RUF002", "RUF003",  # the prose uses real typography on purpose
   "E501",

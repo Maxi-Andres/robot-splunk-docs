@@ -211,7 +211,7 @@ def poll_once(token, state):
     return written
 
 
-def main():
+def cli(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("--once", action="store_true", help="one pass, then exit")
     ap.add_argument(
@@ -221,7 +221,7 @@ def main():
         "FIRST, against the real account: it is how you confirm the field names this "
         "code maps before trusting a single panel.",
     )
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     token = read_token()
 
     if args.probe:
@@ -245,9 +245,16 @@ def main():
         time.sleep(INTERVAL)
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    """Entry point WITH the process-level guards.
+
+    Deliberately not inside `if __name__ == "__main__"`: a script run as __main__ is a
+    different module object from the imported one, so anything living there cannot be
+    reached by a test that imports this file. The first version of the regression test
+    below made exactly that mistake and silently tested nothing.
+    """
     try:
-        main()
+        cli(argv)
     except KeyboardInterrupt:
         log("interrupted")
     except BrokenPipeError:
@@ -258,3 +265,7 @@ if __name__ == "__main__":
         log("downstream closed the pipe, exiting")
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

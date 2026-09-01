@@ -150,33 +150,33 @@ def test_broken_pipe_is_handled_by_the_entry_point(tmp_path):
     BrokenPipeError out of print() and dumped a traceback. In production the downstream is
     hec_shipper, so a dead shipper would have looked like a poller bug.
 
-    No network and no account: a sitecustomize stub (imported by the interpreter before
-    __main__) replaces the API calls, so this drives the real entry point on fake results.
-    The pipe is closed after one line, which is what `| head -1` does.
+    No network and no token: the child IMPORTS te_poller and patches it, then calls
+    main(). Running `te_poller.py` as a script instead would load it as __main__ — a
+    different module object — and the patches would be silently ignored, which is what an
+    earlier version of this test did.
     """
     import subprocess
 
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    (tmp_path / "sitecustomize.py").write_text(
-        "import te_poller\n"
+    driver = (
+        "import sys, te_poller\n"
+        f"te_poller.read_token = lambda: 'stub'\n"
         f"te_poller.list_network_tests = lambda _t: [{TEST!r}]\n"
-        f"te_poller.api_get = lambda *a, **k: {{'results': ["
+        "te_poller.api_get = lambda *a, **k: {'results': ["
         f"dict({RESULT!r}, roundId={RESULT['roundId']} + i) for i in range(5000)]}}\n"
-        "te_poller.read_token = lambda: 'stub'\n"
+        "te_poller.main(['--once'])\n"
     )
     proc = subprocess.Popen(
-        [sys.executable, "te_poller.py", "--once"],
+        [sys.executable, "-c", driver],
         cwd=here, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         stdin=subprocess.DEVNULL,
-        env=dict(
-            os.environ,
-            PYTHONPATH=f"{tmp_path}{os.pathsep}{here}",
-            TE_STATE_FILE=str(tmp_path / "state.json"),
-        ),
+        env=dict(os.environ, PYTHONPATH=here, TE_STATE_FILE=str(tmp_path / "state.json")),
     )
-    assert proc.stdout.readline().strip(), "expected at least one metric line"
+    first = proc.stdout.readline()
     proc.stdout.close()               # this is the `| head -1` moment
     _, err = proc.communicate(timeout=60)
 
+    assert json.loads(first)["event"] == "metric", "the stub never reached stdout"
     assert "BrokenPipeError" not in err, err
     assert "Traceback" not in err, err
+    assert "downstream closed" in err, "the guard in main() did not run: " + err
