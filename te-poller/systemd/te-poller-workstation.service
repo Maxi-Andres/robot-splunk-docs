@@ -1,0 +1,35 @@
+# te-poller on the WORKSTATION (ia-pc-G1-Pro, 192.168.20.99).
+#
+# The other unit in this directory targets the Splunk server, which is the better home for a
+# 24/7 bridge — that box does not get shut down. This one exists because the workstation is
+# where the code and both tokens already live, so it is what runs until the server deploy.
+#
+#   sudo cp systemd/te-poller-workstation.service /etc/systemd/system/te-poller.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now te-poller
+#
+# TEMPORARY BY DESIGN, twice over: the bridge itself is temporary (see
+# ../LICENCIA-Y-THOUSANDEYES.md §5), and running it on a workstation more so.
+[Unit]
+Description=ThousandEyes API -> Splunk HEC (bridge, workstation deploy)
+After=network-online.target
+Wants=network-online.target
+# In [Unit], not [Service]: systemd ignores them under [Service] with only an "Unknown key
+# name" warning, which silently disables the crash-loop guard.
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+[Service]
+User=ia-pc
+Group=ia-pc
+WorkingDirectory=/home/ia-pc/Desktop/robot-ecosystem/robot-splunk-docs/te-poller
+EnvironmentFile=/home/ia-pc/Desktop/robot-ecosystem/robot-splunk-docs/te-poller/.env
+ExecStart=/home/ia-pc/Desktop/robot-ecosystem/robot-splunk-docs/te-poller/run.sh
+Restart=always
+RestartSec=30
+# The tokens are read from $HOME at mode 600, so the unit must run as the user that owns
+# them. That is also why there is no DynamicUser or ProtectHome here.
+MemoryMax=128M
+CPUQuota=10%
+Nice=10
+[Install]
+WantedBy=multi-user.target

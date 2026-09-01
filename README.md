@@ -1,8 +1,15 @@
 # robot-splunk-docs
 
 El registro de ingeniería del ecosistema de robots: las mediciones, las decisiones y los
-planes en los que se apoyan los otros repos de `robot-ecosystem/` y AI-VL. No tiene código
-ejecutable — salvo los dashboards de Splunk, que son el entregable de la parte de telemetría.
+planes en los que se apoyan los otros repos de `robot-ecosystem/` y AI-VL — **más los
+entregables del lado de Splunk**: los dashboards y, desde el 2026-08-31, `te-poller/`.
+
+> ⚠️ **El nombre del repo quedó corto.** Se llama `-docs` y ya tiene código ejecutable con
+> sus tests, su unit de systemd y su gate de commit. Hay dos salidas razonables: renombrarlo
+> a `robot-splunk`, o sacar `te-poller/` a un repo propio. **Sin decidir.** Se puso acá
+> porque es donde ya vivían los dashboards, que son entregables de Splunk igual que el
+> poller. Ojo si se renombra: varios de estos documentos están citados desde el código de
+> otros repos (ver el párrafo siguiente).
 
 Varios de estos documentos están **citados desde el código** de otros repos (buscá
 `robot-splunk-docs/` en `robot-command-relay/relay_server.py`,
@@ -18,6 +25,8 @@ antes.
 | Por qué el DDS no se puede leer desde otra subred, y por qué los dos robots no pueden convivir en un segmento | **`RED-Y-DDS.md`** — el documento fundacional, el más citado |
 | El diagnóstico del video: las tres restricciones medidas y el síntoma abierto | **`ESTADO-Y-CONTINUACION.md`** — traspaso del 2026-08-20. Su §7 quedó absorbida en ROADMAP.md §5.2 |
 | Cómo se opera el robot desde cualquier red | `ARQUITECTURA-REMOTA.md` |
+| **Por qué el dashboard mostraba error de licencia, y cómo entra ThousandEyes** | **`LICENCIA-Y-THOUSANDEYES.md`** — incluye en §5 el plan para migrar al camino oficial de TE |
+| El puente que hoy trae los datos de ThousandEyes | `te-poller/README.md` — **temporal por diseño**, se borra al migrar |
 | Qué IP es cada una y en qué archivo se cambia | `IPS-Y-DONDE-CAMBIARLAS.md` — regenerable con un grep |
 | Cómo actualizar el robot después del renombre | **`REDEPLOY-EN-EL-ROBOT.md`** — pendiente de ejecutar |
 

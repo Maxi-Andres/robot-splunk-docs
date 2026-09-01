@@ -1,0 +1,20 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  check:
+    # py38 to match ruff.toml: the poller is kept portable to the robot's Jetson even
+    # though it is deployed on the Splunk server today.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+      - name: Install tools
+        run: pip install ruff pytest
+      - name: Lint
+        run: ruff check --output-format=github
+      - name: Test
+        working-directory: te-poller
+        run: pytest -q || [ $? -eq 5 ]

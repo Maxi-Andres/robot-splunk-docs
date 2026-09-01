@@ -1,0 +1,28 @@
+# Commit gate. Mirrors robot-telemetry-agent's, so a contributor moving between the two
+# repos meets the same checks in the same order.
+fail_fast: false
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ["--maxkb=512"]
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff (lint, py38 target)
+        entry: ruff check --force-exclude
+        language: system
+        types: [python]
+      - id: pytest
+        name: pytest
+        # exit 5 = "no tests collected" — tolerated, a broken suite is not.
+        entry: bash -c 'cd te-poller && python3 -m pytest -q; rc=$?; [ $rc -eq 5 ] && exit 0; exit $rc'
+        language: system
+        pass_filenames: false
+        always_run: true

@@ -273,37 +273,88 @@ Superada por **§2.1.d**: fue exactamente lo que paso, y ahi esta el diagnostico
 
 ## 3. ThousandEyes en el dashboard
 
-### 3.1. Como entra el dato hoy (y por que no es un pull)
+### 3.1. Como entra el dato — los dos caminos oficiales son push
 
-ThousandEyes **Integrations 2.0** empuja OpenTelemetry a un **HEC de Splunk** con un
-conector `splunk-hec`. No hay modular input ni pull desde Splunk: **es TE el que manda**,
-a `https://<host>:8088/services/collector/event`.
+**Verificado el 31/08 contra la doc de TE.** Corrige lo que decia la primera version de este
+documento, que daba la app de Splunkbase como un pull: **no lo es**.
 
-Esto tiene una consecuencia buena y una mala.
-
-**Buena:** el HEC **no depende del nivel de licencia**. Este camino funciona igual en Free.
-
-**Mala — y es el bloqueo real:**
-
-> 🚧 **TE es cloud y `192.168.20.200` es privada.** El stream sale de la plataforma de
-> ThousandEyes en internet hacia el HEC. Hoy ese HEC vive en VLAN 20, sin NAT entrante.
-> **ThousandEyes no lo puede alcanzar.** No es un tema de token ni de configuracion: no hay
-> camino de red.
-
-Opciones, de menos a mas expuesto:
-
-| Opcion | Que implica |
+| Camino | Que es en realidad |
 |---|---|
-| **Publicar el HEC** con NAT entrante + TLS valido + token dedicado | Es lo que pide TE. Pone `:8088` en internet — con Splunk Free y sin auth atras, hay que pensarlo bien |
-| **Reverse proxy** que solo exponga `/services/collector/event` | Reduce la superficie a un endpoint y permite filtrar por IP de origen de TE |
-| **App de Splunkbase** (`Cisco ThousandEyes App for Splunk`, app 7719, v0.9.0 del 24/08/2026) | Va al reves: **Splunk sale** a la API de TE. Solo necesita egress HTTPS, que la caja privada probablemente ya tiene. **Es el unico camino que no expone nada** |
+| **Streaming integration** (Integrations 2.0, conector `splunk-hec`) | TE **empuja** OTel al HEC |
+| **Cisco ThousandEyes App for Splunk** (Splunkbase 7719) | **No hace pull.** Se configura con OAuth y macros de indice (`stream_index`, `path_viz_index`, `event_index`, `activity_index`), y **visualiza** lo que llega por streaming + webhooks |
 
-**Recomendacion:** empezar por la app (pull). Es la que encaja con una Splunk privada.
-El streaming a HEC queda para cuando haya una decision sobre exponer `:8088`.
+O sea: **los dos piden lo mismo**, un HEC alcanzable desde la nube de TE.
 
-> Ojo con la app en Free: pide **CIM 6.x**, y sus dashboards propios usan modelos de datos
-> acelerados. La **aceleracion es Enterprise**, asi que en Free los dashboards que trae la
-> app pueden venir degradados. Los paneles nuestros de §3.3 son SPL plano y no dependen de eso.
+#### Requisitos del endpoint (`url-target-requirements`)
+
+| Requisito | Valor | Estado 31/08 |
+|---|---|---|
+| Protocolo | **HTTPS obligatorio** | ✅ |
+| Certificado | **CA publicamente confiable**. Self-signed y CA privada **rechazados** | ❌ self-signed |
+| Puerto | **solo TCP 443** | ❌ el HEC escucha en 8088 |
+| DNS | nombre valido y resoluble | ❌ no hay |
+| Alcance | **validado al crear el stream**; si falla, se rechaza la creacion | ❌ IP privada |
+
+> ⚠️ **Contradiccion en la propia doc de TE:** la pagina de Splunk muestra
+> `https://<host>:8088/services/collector`, pero la de requisitos dice **solo 443**. Ante la
+> duda, asumir 443 → **hace falta un reverse proxy**, no alcanza con abrir el puerto.
+
+> 📌 Endpoint correcto por señal: **`/services/collector`** para **metricas**,
+> `/services/collector/event` para eventos. No son intercambiables.
+
+> 🚫 TE **no soporta cuentas trial de Splunk**, explicitamente por el tema del certificado
+> self-signed.
+
+#### IPs de origen de TE (para el allowlist)
+
+Region confirmada el 31/08 en Account Settings: **US2**. Son **12 IPs**.
+
+| Region | IPs |
+|---|---|
+| **US1** | 13.56.245.241, 52.9.183.148, 18.232.232.61, 35.168.54.3, 107.22.84.44, 3.220.243.232, 3.218.27.195, 3.221.227.188 |
+| **US2** ⬅️ **la nuestra** | 3.141.159.49, 3.17.98.26, 3.134.227.22, 3.18.18.42, 3.13.54.169, 3.138.52.162, 52.27.149.70, 52.32.30.54, 52.89.210.182, 44.227.213.61, 35.155.240.202, 35.81.172.197 |
+| **EU1** | 18.157.124.37, 3.70.3.30, 18.158.163.183, 35.158.19.241, 3.127.8.252, 46.51.169.205, 54.75.173.76, 54.217.22.60, 34.243.129.225, 54.216.15.243, 108.128.60.238 |
+
+#### Lo que hay que construir
+
+Decidido el 31/08: **camino oficial**, sin desarrollo propio. Es un trabajo de infra:
+
+1. Nombre **DNS publico** (ej. `hec-splunk.silk-technologies.com`)
+2. **Certificado de CA publica** (Let's Encrypt sirve)
+3. **Reverse proxy en 443** → `192.168.20.200:8088`, publicando **solo** `/services/collector*`
+4. **NAT + allowlist** de las IPs de la region correspondiente
+5. Recien ahi, crear el stream en el portal de TE
+
+> 💡 **Atajo posible:** esta PC ya tiene **Tailscale**. *Tailscale Funnel* publica un
+> servicio interno en 443 con DNS y certificado de Let's Encrypt, sin tocar NAT ni firewall
+> — resuelve 1, 2 y 3 juntos. No es codigo propio, es una feature del producto.
+
+> 🔒 **Secuencia:** **no exponer nada mientras Splunk este en Free.** El HEC va con token,
+> asi que un proxy que solo publique `/services/collector` es defendible, pero con la
+> instancia **sin autenticacion** cualquier ruta de mas que deje pasar el proxy es grave.
+> Licencia posta primero (§2.1.e), exposicion despues.
+
+### 3.1.b. La org y sus agentes — inventario 31/08
+
+**El acceso NO es un problema:** la org es **`SILK TECH SRL - 178`**, propia, con admin. Queda
+sin efecto la duda de `PLAN.md` §148 sobre si el agente del Jetson era de Cisco y por lo
+tanto inaccesible: esta en la org de Silk.
+
+| Agente | Estado | Ultimo contacto | Hostname |
+|---|---|---|---|
+| **TE-ENTERPRISE-SILK** | 🟢 Online | 1 min | `TE-ENTERPRISE` |
+| **TE-ENTERPRISE-IOT** | 🟢 Online | 1 min | `TE-ENTERPRISE-IOT` |
+| go2-jetson-01 | 🔴 Offline | 10 dias | `go2-jetson-01` |
+| LAB-IR-1101 | 🔴 Offline | 10 dias | `LAB-IR-1101` |
+| IE-3500-RING3 | 🔴 Offline | 17 dias | `Cisco-Docker` |
+
+**Consecuencia practica: no hay que esperar al robot.** Con los dos agentes online se arma y
+se valida toda la integracion; cuando el Go2 vuelva, `go2-jetson-01` cae en el mismo indice y
+aparece solo en los paneles — estan escritos **por metrica, no por agente**.
+
+> 📌 `LAB-IR-1101` offline hace 10 dias **contradice `PLAN.md` §388**, que lo da como
+> *"RUNNING, intocable"*. Coincide con los 10 dias del Jetson: se apagaron juntos, coherente
+> con que el IR1101 sea el enlace del robot. Corregir §388 cuando se toque.
 
 ### 3.2. Los indices
 
@@ -324,6 +375,33 @@ sudo -u splunk /opt/splunk/bin/splunk add index thousandeyes_alerts
 ```
 
 Y un token HEC propio, distinto del `Go2-01`, habilitado **solo** para esos dos indices.
+
+### 3.2.b. Hecho el 31/08 — indices y token
+
+```
+Index "thousandeyes" added.          (datatype metric)
+Index "thousandeyes_alerts" added.
+http://thousandeyes  token=6f59****  index=thousandeyes
+                     indexes=thousandeyes,thousandeyes_alerts
+                     sourcetype=thousandeyes:otel  disabled=0
+```
+
+**Inventario completo de tokens HEC en `.20.200`** (salio del mismo `list`):
+
+| Token | Indice | Sourcetype | De quien |
+|---|---|---|---|
+| `Go2-01` | `go2-robot-data` | — | agente del robot |
+| `thousandeyes` | `thousandeyes` (+`_alerts`) | `thousandeyes:otel` | **nuevo, 31/08** |
+| `WLC9800-Telemetry` | `wlc9800` | `cisco:wlc9800:telemetry` | la telemetria Cisco de §2.1.g |
+
+> 🔎 Los 138 MB/dia de §2.1.g entran **por HEC**, igual que el robot. Practico: si hay que
+> frenarlos de urgencia, **se deshabilita ese token** y listo, sin tocar el equipo Cisco:
+> `splunk http-event-collector update WLC9800-Telemetry -disabled 1 -uri https://localhost:8089`
+
+> 🔐 **Los tres tokens quedaron expuestos en claro** (terminal y `~/.bash_history`; el
+> `Go2-01` desde agosto). Un token HEC es credencial de **escritura**: permite inyectar
+> eventos y quemar la licencia. En LAN es tolerable, pero **rotar el de `thousandeyes` antes
+> de exponer el HEC a internet** — es el que queda del lado publico.
 
 ### 3.3. Data Model v2 — los nombres reales
 
@@ -390,16 +468,273 @@ Estado al 31/08: pasos 1-3 hechos, **3 fallido** y por eso aparece el 3b.
 | 3b | **Pedir la licencia Developer** (§2.1.e) | **el bloqueo de hoy** | cuenta splunk.com |
 | 3c | Instalarla **y cambiar el grupo a Enterprise** (§2.1.e) | espera 3b | el `.lic` |
 | 3d | Vigilar que no entren warnings nuevos (§2.1.f) | continuo | — |
-| 4 | Crear los dos indices y el token HEC (§3.2) | **se puede hacer ya** — no depende de la busqueda | acceso a la caja |
-| 5 | Decidir pull (app) vs push (exponer `:8088`) (§3.1) | pendiente | decision, no tecnica |
-| 6 | Dar de alta el origen de TE segun el paso 5 | espera 5 | token de la org de TE |
-| 7 | Verificar nombres con `mcatalog` y ajustar si es v1 (§3.5) | espera 3c + 6 | — |
-| 8 | Medir consumo real a las 24 h (§2.1.f) | espera 6 | — |
+| 4 | Crear los dos indices y el token HEC (§3.2) | ✅ **hecho 31/08** (§3.2.b) | — |
+| 5 | ~~Decidir pull vs push~~ | ✅ **decidido 31/08: camino oficial** (push). No hay pull: la app tampoco lo es (§3.1) | — |
+| 5b | ~~Confirmar region~~ | ✅ **US2** (31/08) — 12 IPs en §3.1 | — |
+| 5c | DNS publico + cert de CA publica + reverse proxy 443 + NAT (§3.1) | **el trabajo grueso**; despues de 3c. Plan completo en **§5** | borde/Meraki + DNS |
+| 6 | **Puente `te-poller/`** mientras 5c no exista | ✅ **construido 31/08** (§6) — 12 tests, ruff limpio | falta `--probe` real |
+| 6b | Correr `--probe` contra la cuenta real y ajustar fixtures | **el proximo paso concreto** | token de TE |
+| 6c | Desplegar el puente en el server de Splunk | espera 6b | acceso a `.20.200` |
+| 7 | **Migrar al oficial y borrar el puente** | el destino — receta paso a paso en **§5.4** | 5c |
+
+| 8 | Verificar nombres con `mcatalog` (§3.5) | espera 3c + 6c | — |
+| 9 | Medir consumo real a las 24 h (§2.1.f) | espera 6c | — |
 
 **Si no se consigue la Developer:** la busqueda vuelve sola el **12/09**, cuando caduquen 4
 de los 6 warnings. Todo lo demas (indices, token, alta de TE) se puede dejar listo antes.
 
-## 5. Nota sobre los paneles nuevos
+## 5. Plan: migrar al camino OFICIAL
+
+> **Léase primero:** lo que corre hoy es un **puente** (`te-poller/`, §7). El destino es la
+> **streaming integration** de ThousandEyes. Este capítulo existe para que la migración no
+> dependa de acordarse de nada.
+
+### 5.1. Por qué el puente no es el destino
+
+El poller entrega tres métricas de red. La integración oficial entrega **bastante más**, y
+nada de eso se puede agregar al puente sin reescribirlo:
+
+| | Puente (`te-poller`) | Oficial (streaming) |
+|---|---|---|
+| loss / latency / jitter | ✅ | ✅ |
+| **Path visualization** | ❌ | ✅ |
+| **Event Detection** | ❌ | ✅ |
+| **Activity log** | ❌ | ✅ |
+| Tests HTTP, DNS, transacciones, BGP, RTP | ❌ | ✅ |
+| Dashboards de la app 7719 | ❌ no aplican | ✅ |
+| Código a mantener | ~250 líneas + tests | **cero** |
+| Frescura | intervalo de 5 min | push casi en vivo |
+| Si falla | lo arreglamos nosotros | lo arregla Cisco |
+
+**El puente se borra, no se extiende.** Cualquier pedido nuevo sobre datos de TE es una razón
+para acelerar esta migración, no para agregarle una función al poller.
+
+### 5.2. Los cinco requisitos, y quién los destraba
+
+Ninguno es de Splunk ni de TE: los cinco son de **infraestructura de red**, y ninguno está
+en esta PC ni en el server de Splunk.
+
+| # | Requisito | Detalle verificado (§3.1) | Quién |
+|---|---|---|---|
+| 1 | **Nombre DNS público** | ej. `hec-splunk.silk-technologies.com` | quien administre el dominio |
+| 2 | **Certificado de CA pública** | self-signed y CA privada **rechazados** | ídem, o Let's Encrypt |
+| 3 | **Puerto 443** | TE **solo** admite 443; el HEC escucha en 8088 → hace falta reverse proxy | quien monte el proxy |
+| 4 | **NAT entrante** | 443 → el host del proxy | quien administre el Meraki MX |
+| 5 | **Allowlist** | las **12 IPs de US2** (§3.1) | ídem |
+
+**Antes que nada, preguntar: ¿Silk ya tiene un wildcard `*.silk-technologies.com`?** Muchas
+empresas lo tienen. Si existe, el punto 2 desaparece y no hay trámite.
+
+Si no: **Let's Encrypt** con desafío **DNS-01** (se agrega un registro TXT, **no** hace falta
+ningún puerto abierto para emitir) o HTTP-01 (necesita el 80 abierto).
+
+### 5.3. El proxy
+
+`Caddy` saca y renueva el certificado solo. El archivo entero:
+
+```
+hec-splunk.silk-technologies.com {
+    reverse_proxy /services/collector* https://192.168.20.200:8088 {
+        transport http { tls_insecure_skip_verify }
+    }
+}
+```
+
+Dos cosas deliberadas:
+
+- **`tls_insecure_skip_verify`**: el certificado *interno* de Splunk sigue siendo self-signed
+  y no importa — el que ve TE es el de Caddy. El tramo inseguro es LAN.
+- **`/services/collector*`**: se publica **solo** el HEC. El resto de Splunk —`:8000` y el
+  `:8089` de administración— queda inalcanzable desde afuera. **Esto es lo que hace
+  defendible exponer algo**, y no es opcional.
+
+### 5.4. Orden de la migración
+
+| # | Paso | Verificación |
+|---|---|---|
+| 1 | Licencia posta instalada y grupo en Enterprise (§2.1.e) | la búsqueda anda |
+| 2 | **Rotar el token HEC `thousandeyes`** (§3.2.b) | quedó expuesto en claro |
+| 3 | DNS + certificado + proxy + NAT + allowlist (§5.2) | `curl` externo al endpoint |
+| 4 | Crear el stream en el portal de TE | TE valida el alcance **al crear**: si acepta, la red está bien |
+| 5 | **Convivencia**: dejar el poller andando un ciclo | ver que lleguen las dos fuentes al mismo índice |
+| 6 | `systemctl disable --now splunk-te-poller` | — |
+| 7 | Confirmar que los paneles siguen iguales | mismos nombres y unidades: **no deberían moverse** |
+| 8 | **Borrar `te-poller/`** y esta nota | — |
+| 9 | Instalar la app 7719 y sus dashboards | opcional, ya con datos oficiales |
+
+> ⚠️ **El paso 1 es un prerrequisito de seguridad, no de comodidad.** Con Splunk en **Free no
+> hay autenticación**: cualquier error del proxy que deje pasar una ruta de más expone una
+> instancia sin credenciales. **No exponer nada antes de la licencia.**
+
+> 💡 **Atajo para validar sin mover a IT:** esta PC tiene **Tailscale**. *Funnel* publica en
+> 443 con DNS y certificado de Let's Encrypt automáticos, sin NAT ni firewall:
+> ```
+> sudo tailscale funnel --bg --https=443 \
+>   --set-path=/services/collector https://192.168.20.200:8088/services/collector
+> ```
+> Sirve para **probar** que el stream se crea y el dato llega, antes de pedir la infra
+> definitiva. **No sirve como destino**: por Funnel no se puede filtrar por IP de origen, así
+> que el allowlist de las 12 IPs no aplica y queda todo colgado del token.
+
+### 5.5. Señales de que hay que apurar esto
+
+- Alguien pide path visualization, eventos o tests que no sean de red
+- El poller acumula parches
+- Aparece un segundo consumidor de datos de TE
+- La licencia deja de ser el cuello de botella
+
+---
+
+## 6. El puente: `te-poller/`
+
+**Construido el 31/08 porque los cinco requisitos de §5.2 dependen de terceros y el dato se
+necesita antes.** Documentación completa en `te-poller/README.md`.
+
+Qué es: un **productor** que consulta la API v7 de TE y emite envelopes de métricas en
+stdout, encadenado al shipper que ya existe:
+
+```
+te_poller.py | ../../robot-telemetry-agent/shipper/hec_shipper.py
+```
+
+Reusa el spool, el batching, el backoff y el cap de bytes en vez de tener una segunda copia
+de cada uno. Corre **en el server de Splunk**, así el salto al HEC es `localhost` y **no se
+expone nada**.
+
+**La decisión que hace gratis el cambio:** los nombres de métrica, las claves de dimensión y
+las unidades son **exactamente** los del exportador OTel v2 de TE. Mismo índice, mismos
+nombres, mismas unidades → **los paneles no distinguen una fuente de la otra**. Migrar es
+apagar esto y prender el stream, sin tocar el dashboard.
+
+> ⚠️ La trampa: la API v7 da `avgLatency` en **milisegundos**, OTel v2 da `network.latency`
+> en **segundos**. El poller divide por 1000 para parecerse a OTel, **no** a la API que lee.
+> Al revés, cada panel de latencia queda mal por 1000x y **se ve plausible**.
+
+**Antes de confiar en un solo panel**, correr contra la cuenta real:
+
+```bash
+printf '%s' 'TOKEN-DE-TE' > ~/.te_bearer_token && chmod 600 ~/.te_bearer_token
+./te_poller.py --probe
+```
+
+Vuelca la respuesta cruda de la API. Los fixtures de los tests están hechos sobre el esquema
+`NetworkTestResult` **documentado**; si la respuesta real no coincide, **se arregla el fixture
+primero y se deja fallar el test** — para eso está.
+
+### 6.1. Verificado contra la cuenta real — 2026-09-01
+
+`--probe` corrido contra `SILK TECH SRL - 178`. **El esquema documentado coincide con la
+respuesta real**: `agent{agentId,agentName,countryId,location}`, `date`, `roundId`, `loss`,
+`avgLatency`, `jitter`, `serverIp`. No hubo que tocar ningún fixture.
+
+Una línea real, ya en formato Splunk:
+
+```
+test "Webex - silk - us - Video - 5004"  agente TE-ENTERPRISE-SILK
+  network.loss    = 0.0        (%)
+  network.latency = 0.087      (s)  <- 87 ms de la API, dividido por 1000
+  network.jitter  = 0.81632656 (ms)
+```
+
+**Dos hallazgos de la corrida:**
+
+1. **El test `Agent to Agent Test` está fallando**, y es el que involucra al robot. Devuelve
+   rondas sin métricas, solo
+   `errorDetails: "Target: Connection to source agent failed"` — coherente con
+   `go2-jetson-01` offline hace 10 días (§3.1.b). El poller **emite cero** para esas rondas,
+   que es lo correcto: un `loss=0` inventado ahí sería mentira. **Pero implica que un agente
+   caído se ve como un hueco en el panel, no como una alerta.** La detección de caídas es una
+   de las cosas que trae el camino oficial (Event Detection) y que el puente no da (§5.1).
+
+2. **Hay tests de otras personas en la org** — los `Webex - silk - *` los creó otro usuario.
+   El poller los levanta a todos. Es dato útil, pero **cuenta contra los 500 MB compartidos**:
+   conviene mirar cuántos tests hay antes de dejarlo corriendo, y si son muchos, filtrar por
+   nombre o subir `TE_POLL_INTERVAL_S`.
+
+### 6.2. Bug encontrado y corregido en la primera corrida
+
+`te_poller.py | head -3` reventaba con `BrokenPipeError` y traceback. En producción el
+downstream es `hec_shipper`, así que **un shipper muerto habría parecido un bug del poller**.
+Corregido en el entry point, con un test de regresión que **falla sin el arreglo**
+(verificado sacándolo a propósito).
+
+### 6.3. Dos tropiezos al desplegar — 2026-09-01
+
+Los dos son de invocación, no del código, y los dos muerden a quien copie un comando a mano:
+
+1. **`hec_shipper.py` está commiteado modo 644**, sin bit de ejecución. Invocarlo por ruta da
+   `bash: ... Permission denied` a secas, que no dice nada sobre permisos de ejecución.
+   **Siempre `python3 shipper/hec_shipper.py`** — es lo que hace el `run.sh` del agente, y
+   ahora también el nuestro. (Corregido: el `run.sh` de `te-poller` tenía el mismo bug.)
+
+2. **`VAR=x cmd1 | cmd2` NO le pasa `VAR` a `cmd2`.** El shipper es el segundo proceso del
+   pipe, así que muere con `HEC_URL and HEC_TOKEN are required` mientras el poller arranca
+   normal — parece un problema del shipper y es del shell. Hay que **exportar**. `run.sh` ya
+   exporta; el problema aparece solo al armar el pipe a mano.
+
+### 6.4. Primera corrida real contra Splunk — 2026-09-01
+
+```
+[te-poller] pass complete: 14 point(s)
+[shipper] up: url=https://192.168.20.200:8088/services/collector cap=20971520B
+[shipper] stdin closed, exiting
+```
+
+**Spool vacío = Splunk aceptó todo con 200.** Ningún 4xx, así que el índice quedó bien
+creado como `metric` y el token escribe donde debe.
+
+Y el watermark quedó demostrado en vivo: **14 puntos la primera pasada, 1 la segunda** 20 s
+después. La ventana de 10 min se solapa a propósito para no perder una ronda tardía, y el
+`roundId` es lo que evita que ese solapamiento se pague dos veces en licencia.
+
+### 6.5. Consumo de licencia medido — 2026-09-01
+
+Con el puente ya enviando, el mismo `license_usage.log` de §2.1.f:
+
+| Indice | Sourcetype | MB/24h |
+|---|---|---|
+| `wlc9800` | `cisco:wlc9800:telemetry` | 83.18 |
+| `wlc9800` | `cisco:urwb:telemetry` | 55.39 |
+| **`thousandeyes`** | `thousandeyes:otel` | **0.00** |
+| **`thousandeyes_alerts`** | `robot:shipper` | **0.00** |
+
+`0.00` a dos decimales = **menos de 5 KB**. ThousandEyes **no mueve la aguja** de la licencia:
+el presupuesto sigue siendo el Cisco (138 MB) y el agente del robot (cap 150 MB).
+
+De paso confirma el circuito entero: las métricas entran por `192.168.20.200:8088` a
+`thousandeyes`, y el self-health del shipper cae aparte en `thousandeyes_alerts` — que es
+exactamente para lo que se separó (§6.3). En el índice de métricas cada beat habría dado 400.
+
+### 6.6. Arranque automático — instalado 2026-09-01
+
+Corre en **esta PC** (`ia-pc-G1-Pro`, `.20.99`), no en el server, como unit de sistema:
+
+```
+sudo cp systemd/te-poller-workstation.service /etc/systemd/system/te-poller.service
+sudo systemctl daemon-reload && sudo systemctl enable --now te-poller
+```
+
+Verificado: `enabled` + `active (running)`, 25 MB de los 128 del tope, los tres procesos
+(`run.sh` → `te_poller.py` → `hec_shipper.py`) bajo el mismo cgroup.
+
+```
+journalctl -u te-poller -f      # log en vivo
+systemctl stop te-poller        # frenarlo
+```
+
+> ⚠️ **Falta la prueba real: reiniciar la PC.** Un `systemctl restart` no prueba `enabled`.
+
+> ⚠️ **Esta PC es el lugar equivocado para algo que tiene que estar siempre.** Resuelve el
+> arranque automático hoy, pero un escritorio se apaga. El server de Splunk no, y su unit ya
+> está escrita (`systemd/splunk-te-poller.service`). Mudarlo = clonar dos repos y copiar un
+> archivo. Hacerlo cuando la licencia haga que valga la pena tener el dato firme.
+
+Estado: **13 tests pasan, `ruff` limpio, verificado contra la API real, contra Splunk, y
+corriendo como servicio.**
+
+---
+
+## 7. Nota sobre los paneles nuevos
 
 El chart de la fila 6 grafica las tres metricas **agregadas, sin abrir por test**. Es a
 proposito: `mstats ... by <dim>` devuelve **filas**, no series en columnas como hace

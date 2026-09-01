@@ -1,0 +1,18 @@
+# Lint for the Splunk-side Python in this repo.
+#
+# target-version is py38 even though this runs on the server (Ubuntu 26.04, modern Python):
+# the poller is stdlib-only and py38-safe on purpose, so it can be moved onto the robot's
+# Jetson unchanged if the bridge ever has to run there. Pinning it keeps that true.
+target-version = "py38"
+line-length = 100
+exclude = ["__pycache__"]
+
+[lint]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "FA", "S", "RUF"]
+ignore = [
+  "S101",    # assert: that is what the tests are made of
+  "S310",    # urlopen against a configured API base, not user input — same call as the shipper's
+  "S108",    # /var/tmp for the spool and the state file: chosen so a runaway cannot fill $HOME
+  "RUF001", "RUF002", "RUF003",  # the prose uses real typography on purpose
+  "E501",
+]
