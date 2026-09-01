@@ -231,4 +231,130 @@
       </table>
     </panel>
   </row>
+
+  <!-- ============ FILA 5: enlace del robot (ThousandEyes) ============ -->
+  <!-- Datos de ThousandEyes Integrations 2.0 (conector splunk-hec, OTel Data Model v2).
+       Metricas: network.loss (%), network.latency (SEGUNDOS), network.jitter (ms).
+       OJO con latency: v2 la manda en segundos, v1 la mandaba en ms. Por eso el *1000.
+       El indice `thousandeyes` tiene que ser de tipo METRICS: el exporter splunk_hec
+       manda metricas, no eventos. Las alertas si van a un indice de eventos.
+       Ver LICENCIA-Y-THOUSANDEYES.md para el alta del stream y del token. -->
+  <row>
+    <panel>
+      <title>Perdida del enlace (ThousandEyes)</title>
+      <single>
+        <search>
+          <query>| mstats avg(network.loss) as loss WHERE index=thousandeyes
+| eval loss=round(loss,2)</query>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="unit">%</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[1,5]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+
+    <panel>
+      <title>Latencia (ThousandEyes)</title>
+      <single>
+        <search>
+          <query>| mstats avg(network.latency) as lat WHERE index=thousandeyes
+| eval lat=round(lat*1000,1)</query>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="unit">ms</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[80,200]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+
+    <panel>
+      <title>Jitter (ThousandEyes)</title>
+      <single>
+        <search>
+          <query>| mstats avg(network.jitter) as jit WHERE index=thousandeyes
+| eval jit=round(jit,1)</query>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="unit">ms</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[10,30]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+
+    <panel>
+      <title>Agentes reportando</title>
+      <single>
+        <search>
+          <query>| mstats avg(network.latency) as lat WHERE index=thousandeyes by "thousandeyes.source.agent.name"
+| rename "thousandeyes.source.agent.name" as agente
+| stats dc(agente) as agentes</query>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="rangeColors">["0xdc4e41","0x53a051"]</option>
+        <option name="rangeValues">[0.5]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Enlace en el tiempo</title>
+      <chart>
+        <search>
+          <query>| mstats avg(network.loss) as "Perdida (%)", avg(network.latency) as lat_s, avg(network.jitter) as "Jitter (ms)"
+    WHERE index=thousandeyes span=1m
+| eval "Latencia (ms)"=round(lat_s*1000,1)
+| fields - lat_s</query>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">ms / %</option>
+        <option name="charting.legend.placement">bottom</option>
+      </chart>
+    </panel>
+
+    <panel>
+      <title>Alertas de ThousandEyes</title>
+      <!-- Las columnas quedan sin fijar a proposito: el payload del webhook de TE no
+           esta verificado contra un evento real todavia. Cuando llegue la primera
+           alerta, mirar los campos y fijar el `table`. -->
+      <table>
+        <search>
+          <query>index=thousandeyes_alerts sourcetype=thousandeyes:alert
+| sort - _time
+| table _time *</query>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+        </search>
+        <option name="count">15</option>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+  </row>
 </form>
