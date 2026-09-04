@@ -145,7 +145,7 @@ a su conclusión: si el DDS tiene que ser local, entonces el lector va donde est
 | Internet | ping 8.8.8.8 en **2,86 ms**, DNS resolviendo | **Puede alcanzar Splunk** (y un futuro endpoint remoto) |
 | Reloj | NTP **activo y sincronizado**; TZ Asia/Shanghai (fábrica) | Correcto en UTC. El agente debe emitir **epoch**, y la TZ es irrelevante |
 | ROS2 | Foxy (y ROS1 Noetic) instalados | No se usan: el SDK nativo evita depender de ellos |
-| **Software de terceros ya corriendo** | contenedor `go2-jetson-01` = **ThousandEyes enterprise-agent (Cisco)** | **Hay precedente de agentes de terceros en el robot, desplegados como Docker** |
+| **Software de terceros ya corriendo** | contenedor `go2-jetson-01` = **ThousandEyes enterprise-agent (Cisco)** | **Hay precedente de agentes de terceros en el robot, desplegados como Docker.** ⚠️ Corregido 04/09: el agente está en la org **propia** `SILK TECH SRL - 178`, con admin nuestro — no es inaccesible como se asumía |
 
 Ese último punto es el más importante: **el riesgo de "no nos dejan instalar software en el robot"
 ya está resuelto en la práctica**, y además muestra el patrón aceptado (contenedor Docker).
@@ -219,6 +219,12 @@ Este plan lo **esquiva**, no lo arregla.
 
 ### 5.1. Presupuesto de licencia
 
+> ⛔ **VENCIDO — corregido el 2026-09-04.** Esta sección describe el trial. Hoy la licencia es
+> una **Partner NFR Enterprise de 50 GB/día** hasta el **2027-09-04** — cien veces esto. El
+> análisis de abajo sigue siendo válido como *ingeniería* (por qué no se puede reenviar el
+> tópico crudo: eran 51 GB/día contra 500 MB), pero **el presupuesto ya no es la restricción
+> que manda**. Ver `LICENCIA-Y-THOUSANDEYES.md` §2.1.e-bis.
+
 **500 MB/día** hasta el **25 de agosto** (trial de Splunk Enterprise), **compartido con otra
 persona** que está armando otro dashboard — así que el disponible real es menor y desconocido.
 Splunk licencia **bytes crudos ingestados**: el tamaño del JSON *es* el consumo.
@@ -245,6 +251,10 @@ de comernos la licencia compartida.
 > almacenamiento.
 
 ### 5.2. Deadline
+
+> ⛔ **Superado.** El trial venció el 25/08 y dejó la búsqueda deshabilitada 10 días; se
+> resolvió el 04/09 con la Partner NFR. La historia completa —incluidas las 6 violaciones que
+> generó el propio vencimiento— está en `LICENCIA-Y-THOUSANDEYES.md` §2.
 
 El trial vence el **25/08**. Prioridad: que el dato llegue y se vea; la prolijidad de infra
 después. Y con los dos robots apagados, el despliegue en el robot **no se puede hacer todavía**
@@ -385,7 +395,7 @@ Está documentado en `PLAN-CONECTIVIDAD-ROBOTS.md`, que es la autoridad sobre la
 | **VPN IKEv2 IR1101 → Meraki MX (HQ)** | **Operativa** |
 | NAT del Jetson: `192.168.123.18` → `10.1.254.18` | **Operativa**, ping desde HQ OK |
 | Uplink de campo | **Starlink Mini** (bypass de CGNAT, IP SLA keepalive configurado) |
-| Contenedor ThousandEyes (IOx) en el IR1101 | RUNNING, **intocable** |
+| Contenedor ThousandEyes (IOx) en el IR1101 | RUNNING, **intocable** — ⚠️ pero el agente `LAB-IR-1101` figura **offline desde ~2026-08-22** en el portal de TE, igual que el del Jetson. Se apagaron juntos |
 
 Y es exactamente la forma correcta según la tesis del diseño: **el túnel lleva HTTPS, no DDS.**
 El IR1101 le da al robot un segmento L2 propio que viaja con él, con salida VPN — así que el
@@ -502,7 +512,7 @@ orden aprovecha eso: se construye y se prueba local, y el despliegue al robot es
 | 10 | Resolver el camino a Splunk desde afuera (§8): VPN en el robot |
 | 11 | Prueba de campo real: cortar el enlace a propósito y confirmar que el spool drena sin perder datos ni duplicar |
 | 12 | Repetir para el G1 en PC2 (`.164`) |
-| 13 | Alertas (ojo: si el trial cae a Splunk Free, **se pierde alerting**) |
+| 13 | Alertas — ✅ **ya se puede**: la Partner NFR trae `Alerting`, `ScheduledAlerts` y `ScheduledReports`. El riesgo de caer a Free quedó atrás |
 
 ---
 
@@ -513,9 +523,10 @@ orden aprovecha eso: se construye y se prueba local, y el despliegue al robot es
 - [ ] ¿Un token HEC por robot (revocable) o uno compartido? Recomiendo por robot (§9.7).
 - [x] ~~Acceso al Jetson del Go2~~ — SSH `unitree`, inventariado, y ya corre un agente de terceros.
 - [ ] **Cambiar la password del Jetson** (hoy es `123`) antes de dejar un token de Splunk ahí.
-- [ ] Presupuesto post-25/08: ¿se compra más volumen? ¿Y qué queda — si cae a Free, se pierden
-      alerting y autenticación, y el alerting es justo lo que querríamos para temperatura crítica.
-- [ ] Cuánto del presupuesto consume la otra persona (define el cap real del agente).
+- [x] ~~Presupuesto post-25/08~~ — **resuelto 2026-09-04**: Partner NFR, **50 GB/día** hasta
+      2027-09-04, con alerting y autenticación. Ver `LICENCIA-Y-THOUSANDEYES.md` §2.1.e-bis.
+- [x] ~~Cuánto consume la otra persona~~ — **medido 2026-08-31: ~138 MB/día**, telemetría
+      Cisco (WLC 9800 + radios CURWB) por HEC. Con 50 GB de techo dejó de importar.
 - [ ] Certificado de Splunk: propio o autofirmado (define si el shipper valida TLS).
 - [ ] Video en el campo: fuera de alcance de este plan, decidir si se encara (§10).
 - [ ] Separación de los dos robots en la LAN local: este plan lo **esquiva**, pero sigue abierto
@@ -534,6 +545,6 @@ orden aprovecha eso: se construye y se prueba local, y el despliegue al robot es
 | El token HEC viaja en el robot | Un robot perdido = credencial expuesta | Token por robot, revocable (§9.7) |
 | El robot se cae/vuelve seguido (documentado como intermitente) | Huecos | `Restart=always` + `robot:event` de caída/retorno: el hueco se vuelve un dato |
 | Sobrecalentamiento del G1 (~104 °C, se apaga solo) | Aplica cuando entre el G1 | Es justamente una de las métricas a monitorear |
-| El trial vence con el dashboard a medio hacer | Hay que rehacer la demo | Orden de §11: dato en Splunk primero, robot después |
+| ~~El trial vence con el dashboard a medio hacer~~ | **PASÓ** el 25/08: 10 días sin poder buscar | ✅ Resuelto 04/09 con la Partner NFR. **Lección registrada**: al vencer una licencia, la ingesta NO para y genera una violación por día — cortar el shipper el mismo día (`LICENCIA-Y-THOUSANDEYES.md` §2.1.d) |
 | ~~No nos dejan instalar software en el robot~~ | ~~Se cae la arquitectura entera~~ | ✅ **Resuelto 2026-08-19**: ya corre un ThousandEyes agent (Cisco) en el Jetson del Go2, como contenedor Docker. Hay precedente y patrón |
 | **La pass de SSH del robot es `123`** | Un token HEC guardado ahí queda muy expuesto | Token **por robot**, revocable (§9.7); permisos restrictivos en el archivo; plantear el cambio de credencial al dueño del robot |

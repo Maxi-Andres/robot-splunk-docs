@@ -51,6 +51,8 @@ SOURCETYPE = os.environ.get("TE_SOURCETYPE", "thousandeyes:otel")
 SOURCE = os.environ.get("TE_SOURCE", "thousandeyes:api")
 INTERVAL = float(os.environ.get("TE_POLL_INTERVAL_S", "300"))
 WINDOW = os.environ.get("TE_WINDOW", "10m")
+EVENT_INDEX = os.environ.get("TE_EVENT_INDEX", "thousandeyes_alerts")
+AGENTS = os.environ.get("TE_AGENTS", "")   # comma-separated agentName filter; empty = all
 STATE_FILE = os.environ.get("TE_STATE_FILE", "/var/tmp/te-poller-state.json")
 TIMEOUT = float(os.environ.get("TE_HTTP_TIMEOUT", "20"))
 
@@ -153,6 +155,59 @@ def envelope(result, test):
     return json.dumps(ev, separators=(",", ":"))
 
 
+def agent_envelopes(token):
+    """One EVENT per Enterprise Agent, carrying its inventory and state.
+
+    Not a metric, and not in the metrics index: agent state is inventory (online/offline,
+    last seen, public IP, ISP), and Splunk cannot hold an event in a metrics index.
+
+    This is the one thing here the official OTel stream does NOT replace. That stream
+    carries `thousandeyes.source.agent.*` as dimensions ON test metrics, so when an agent
+    goes dark its metrics simply stop — the dashboard shows a gap and cannot say whether
+    the agent is down, the test was disabled, or nothing was scheduled. This says which.
+    When the migration happens (../LICENCIA-Y-THOUSANDEYES.md §5), decide deliberately
+    whether Event Detection covers it; do not assume it does.
+    """
+    try:
+        data = api_get("/agents", token)
+    except (urllib.error.HTTPError, OSError) as e:
+        log(f"cannot list agents: {e}")
+        return []
+
+    wanted = {a.strip() for a in AGENTS.split(",") if a.strip()}
+    out = []
+    for a in data.get("agents", []):
+        name = a.get("agentName", "")
+        if wanted and name not in wanted:
+            continue
+        state = a.get("agentState", "unknown")
+        ev = {
+            "time": round(time.time(), 3),
+            "sourcetype": "thousandeyes:agent",
+            "index": EVENT_INDEX,
+            "host": name,
+            "event": {
+                "agent_id": str(a.get("agentId", "")),
+                "agent_name": name,
+                "agent_state": state,
+                # A boolean alongside the string: a single-value panel needs something to
+                # average or max, and colouring on a string is not a thing in Simple XML.
+                "online": 1 if state == "online" else 0,
+                "last_seen": a.get("lastSeen", ""),
+                "hostname": a.get("hostname", ""),
+                "location": a.get("location", ""),
+                "country": a.get("countryId", ""),
+                "ip_addresses": ",".join(a.get("ipAddresses") or []),
+                "public_ip": ",".join(a.get("publicIpAddresses") or []),
+                "network": a.get("network", ""),
+                "enabled": bool(a.get("enabled", False)),
+                "agent_type": a.get("agentType", ""),
+            },
+        }
+        out.append(json.dumps(ev, separators=(",", ":")))
+    return out
+
+
 def list_network_tests(token):
     data = api_get("/tests", token)
     out = []
@@ -176,9 +231,12 @@ def poll_once(token, state):
 
     if not tests:
         log("no agent-to-server or agent-to-agent tests in this account group")
-        return 0
 
     written = 0
+    for line in agent_envelopes(token):
+        print(line, flush=True)
+        written += 1
+
     for test in tests:
         tid = test.get("testId")
         try:

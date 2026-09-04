@@ -143,6 +143,70 @@ def test_only_network_capable_tests_are_requested(monkeypatch):
     assert [t["testId"] for t in te_poller.list_network_tests("tok")] == [1, 3]
 
 
+AGENTS = {
+    "agents": [
+        {"agentId": "562949953438687", "agentName": "go2-jetson-01", "agentState": "offline",
+         "lastSeen": "2026-08-22T00:07:54Z", "hostname": "go2-jetson-01", "enabled": True,
+         "location": "Buenos Aires, Argentina", "countryId": "AR", "agentType": "enterprise",
+         "ipAddresses": ["172.17.0.2"], "publicIpAddresses": ["153.67.181.145"],
+         "network": "SpaceX Starlink (AS 14593)"},
+        {"agentId": "562949953426606", "agentName": "TE-ENTERPRISE-SILK", "agentState": "online",
+         "lastSeen": "2026-09-04T12:00:00Z", "enabled": True, "agentType": "enterprise"},
+    ]
+}
+
+
+def _agents(monkeypatch, only=""):
+    monkeypatch.setattr(te_poller, "api_get", lambda *a, **k: AGENTS)
+    monkeypatch.setattr(te_poller, "AGENTS", only)
+    return [json.loads(x) for x in te_poller.agent_envelopes("tok")]
+
+
+def test_agent_state_is_an_event_in_the_events_index(monkeypatch):
+    """Agent state is inventory. A metrics index cannot hold an event, so it goes elsewhere."""
+    ev = _agents(monkeypatch)[0]
+    assert ev["index"] == te_poller.EVENT_INDEX
+    assert ev["index"] != te_poller.INDEX, "would be rejected by Splunk with a 400"
+    assert ev["sourcetype"] == "thousandeyes:agent"
+    assert "event" in ev and "fields" not in ev
+
+
+def test_offline_agent_is_reported_not_omitted(monkeypatch):
+    """The whole point: when the robot is down its metrics stop, so the gap needs a reason."""
+    go2 = next(e for e in _agents(monkeypatch) if e["event"]["agent_name"] == "go2-jetson-01")
+    assert go2["event"]["agent_state"] == "offline"
+    assert go2["event"]["online"] == 0
+    assert go2["event"]["last_seen"] == "2026-08-22T00:07:54Z"
+    assert go2["event"]["network"] == "SpaceX Starlink (AS 14593)"
+    assert go2["event"]["public_ip"] == "153.67.181.145"
+
+
+def test_online_flag_tracks_the_state_string(monkeypatch):
+    """A single-value panel cannot colour on a string, so a 1/0 rides alongside it."""
+    by = {e["event"]["agent_name"]: e["event"] for e in _agents(monkeypatch)}
+    assert by["TE-ENTERPRISE-SILK"]["online"] == 1
+    assert by["go2-jetson-01"]["online"] == 0
+
+
+def test_agent_filter_selects_by_name(monkeypatch):
+    """TE_AGENTS keeps the Go2 dashboard to the Go2 without filtering in every panel."""
+    got = _agents(monkeypatch, only="go2-jetson-01")
+    assert [e["event"]["agent_name"] for e in got] == ["go2-jetson-01"]
+
+
+def test_empty_filter_means_every_agent(monkeypatch):
+    assert len(_agents(monkeypatch, only="")) == 2
+
+
+def test_agent_listing_failure_does_not_abort_the_pass(monkeypatch, capsys):
+    def boom(*a, **k):
+        raise OSError("dns failure")
+    monkeypatch.setattr(te_poller, "api_get", boom)
+    monkeypatch.setattr(te_poller, "AGENTS", "")
+    assert te_poller.agent_envelopes("tok") == []
+    assert "cannot list agents" in capsys.readouterr().err
+
+
 def test_broken_pipe_is_handled_by_the_entry_point(tmp_path):
     """`te_poller.py | head` must exit quietly, with no traceback.
 

@@ -181,6 +181,66 @@ Settings -> Licensing -> Change license group -> Enterprise -> Save
 - **Si Silk ya es cliente de Splunk**, el camino bueno son las *Personalized Dev/Test
   Licenses* via account team: mas rapido y sin la ambiguedad anterior. Preguntar ahi primero.
 
+### 2.1.e-bis. RESUELTO 2026-09-04 — Partner NFR, y el archivo venía traducido
+
+No hizo falta la Developer: apareció una **Splunk Enterprise — Partner NFR**.
+
+| | |
+|---|---|
+| Cuota | **50 GB/día** (53687091200) — 100× los 500 MB |
+| Vigencia | 2026-09-04 → **2027-09-04** |
+| `max_violations` | 5, ventana 30 |
+| Features | set completo: `Acceleration`, `KVStore`, `LDAPAuth`, `SAMLAuth`, `ScheduledAlerts`, `MultisiteClustering`… |
+
+**Pero el archivo llegó roto, y de una forma que vale la pena registrar.** Splunk rechazaba
+con `failed to parse license because: Feature="Alerta" is unrecognized`.
+
+**El XML había pasado por un traductor automático** — casi seguro el navegador traduciendo la
+página antes del copy-paste. Seis nombres de feature en español:
+
+| Llegó | Debía decir |
+|---|---|
+| `Alerta` | `Alerting` |
+| `ImplementarCliente` | `DeployClient` |
+| `ImplementarServidor` | `DeployServer` |
+| `ProcesadorDeFirma` | `SigningProcessor` |
+| `ProcesadorDeSalidaDeSyslog` | `SyslogOutputProcessor` |
+| `PuedeSerMaestroRemoto` | `CanBeRemoteMaster` |
+
+Splunk se quejaba solo de la primera porque el parser corta ahí.
+
+Y había un **segundo daño más silencioso**: un **espacio en el medio del base64 de la firma**.
+Sin el espacio son 344 caracteres → 256 bytes → RSA-2048, que es exactamente lo que debe ser.
+Con el espacio el base64 **ni decodifica**. Era un salto de línea que el copy-paste aplastó.
+
+**Se reconstruyó** restaurando los seis nombres y sacando el espacio. Como la firma cubre el
+payload, volver al texto original exacto **la hizo validar**: `status:VALID`.
+
+> 📌 **Regla para la próxima:** una licencia de Splunk se pide **como archivo adjunto
+> `.license`**, nunca pegada como texto. Está firmada: cualquier byte distinto la invalida, y
+> un navegador con traducción automática cambia bytes sin avisar.
+
+**Instalarla son DOS pasos** y el segundo se olvida:
+
+```bash
+# 1. Settings -> Licensing -> Add license   (o copy & paste del XML)
+# 2. EL QUE FALTA:
+/opt/splunk/bin/splunk edit licenser-groups Enterprise -is_active 1
+sudo systemctl restart Splunkd
+```
+
+Sin el paso 2 Splunk **guarda la licencia y la ignora**: `list licenses` la muestra `VALID`
+mientras `list licenser-groups` sigue con `Free is_active:1`. Pasó exactamente así.
+
+Verificado tras el restart: `licenseState: OK`, y **la API remota volvió a responder** — bajo
+Free devolvía *"Remote login disabled"* (§2.1.b). Ese es el chequeo rápido desde otra máquina.
+
+> ⚠️ Quedan los **6 warnings** de §2.1.d y esta licencia declara `max_violations 5`. Si la
+> búsqueda sigue trabada, es eso; el primero caduca el **09/09** y se resuelve solo.
+
+> 🔒 **La licencia NO va al repo** — `robot-splunk-docs` es **público**. Está en
+> `~/splunk-licencias/` modo 600, y `.gitignore` corta `*.license` y `licence.xml`.
+
 ### 2.1.f. Vigilar que no entren warnings nuevos
 
 Desde el 31/08 la cuota de Free es de **500 MB/dia reales**, asi que solo se genera warning
@@ -733,6 +793,49 @@ Estado: **13 tests pasan, `ruff` limpio, verificado contra la API real, contra S
 corriendo como servicio.**
 
 ---
+
+### 6.7. El dashboard del Go2 muestra SOLO el Go2 — 2026-09-04
+
+Los paneles de TE traían **todos** los agentes mezclados (Webex, JUMP SERVER, SILK TANGO…).
+Este dashboard es del Go2, así que ahora todo filtra por un token único:
+
+```xml
+<init><set token="te_agent">go2-jetson-01</set></init>
+```
+
+Un solo lugar: si el agente se re-enrola con otro nombre, se cambia ahí y nada más.
+
+**El filtro va por `by` + `rename` + `where`, no dentro del `WHERE` de `mstats`.** Los nombres
+de dimensión llevan puntos y el quoting adentro de `mstats` es frágil; con este volumen la
+diferencia de costo es nula y esta forma no se rompe.
+
+**Qué tiene ThousandEyes sobre el Go2** (relevado el 04/09): **un solo test** lo involucra —
+`Agent to Agent Test`, `go2-jetson-01` → `TE-ENTERPRISE-SILK`. Nada más. Si se agregan tests
+desde el robot, entran solos a los paneles porque el filtro es por agente, no por test.
+
+#### El estado del agente: lo que el stream oficial NO reemplaza
+
+El poller ahora emite también el **inventario del agente** (`sourcetype=thousandeyes:agent`,
+al índice de **eventos**, porque un índice de métricas no acepta eventos):
+
+```
+agent_state   offline          public_ip   153.67.181.145
+last_seen     2026-08-22       network     SpaceX Starlink (AS 14593)
+online        0                location    Buenos Aires, Argentina
+```
+
+> 💡 **Es el único panel que dice algo útil con el robot apagado.** El stream oficial lleva
+> `thousandeyes.source.agent.*` como dimensiones **sobre las métricas**: cuando el agente se
+> cae, las métricas simplemente paran y el panel muestra un hueco — sin poder distinguir
+> "agente caído" de "test deshabilitado" o "nada programado". Esto lo distingue.
+>
+> ⚠️ **Al migrar (§5.4), decidir a conciencia si Event Detection cubre esto. No asumirlo.**
+> Es la única parte del puente que no tiene reemplazo obvio.
+
+Ese `network: SpaceX Starlink (AS 14593)` confirma de forma independiente el uplink del Go2
+que `PLAN.md` §387 da como Starlink Mini.
+
+Estado: **19 tests pasan, `ruff` limpio.**
 
 ## 7. Nota sobre los paneles nuevos
 

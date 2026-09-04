@@ -125,3 +125,21 @@ encontrar en todo el proyecto.
 | Token HEC de Splunk | `~/.splunk_hec_token` **en el robot** (modo 600) | Fuera del repo: no se pushea ni se pisa con un pull |
 | SSH del Jetson | usuario `unitree` | ⚠️ **la password es `123`** — cambiarla, hay un token ahí adentro |
 | Splunk | índice `go2-robot-data`, token `Go2-01` | Un índice y un token **por robot**, para poder revocar |
+| Bearer de ThousandEyes | `~/.te_bearer_token` **en esta PC** (modo 600) | Se saca en *Manage → Account Settings → Users and Roles → Profile → User API Tokens*. **Se muestra una sola vez** |
+| Token HEC de ThousandEyes | `~/.splunk_hec_te_token` **en esta PC** (modo 600) | Token `thousandeyes`, acotado a `thousandeyes` + `thousandeyes_alerts` |
+| **Licencia de Splunk** | `~/splunk-licencias/` (modo 600) — **NUNCA en el repo, es público** | Partner NFR, 50 GB/día, vence 2027-09-04. `.gitignore` corta `*.license` |
+
+### 7.1. Inventario de tokens HEC en `192.168.20.200`
+
+| Token | Índice(s) | Sourcetype | De quién |
+|---|---|---|---|
+| `Go2-01` | `go2-robot-data` | — | agente del robot |
+| `thousandeyes` | `thousandeyes` (metric), `thousandeyes_alerts` | `thousandeyes:otel` | `te-poller` |
+| `WLC9800-Telemetry` | `wlc9800` | `cisco:wlc9800:telemetry` | telemetría Cisco (WLC + CURWB), ~138 MB/día |
+
+> El índice `thousandeyes` es de tipo **`metric`** (`splunk add index X -datatype metric`).
+> Un índice de eventos **no** puede guardar métricas y `mstats` no lee uno de eventos.
+> Por eso el self-health del shipper va a `thousandeyes_alerts` y no al de métricas.
+
+> Para frenar de urgencia una fuente sin tocar el equipo de origen:
+> `splunk http-event-collector update <token> -disabled 1 -uri https://localhost:8089`

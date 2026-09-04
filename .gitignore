@@ -1,0 +1,6 @@
+# Licencias de Splunk: NUNCA en el repo. Este repo es PUBLICO, y una licencia firmada
+# atada a la org de Silk no se publica. Splunk ya la guarda en /opt/splunk/etc/licenses/;
+# el respaldo va al gestor de credenciales de la empresa.
+*.license
+licence.xml
+license.xml

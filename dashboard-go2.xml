@@ -2,6 +2,13 @@
   <label>Robot Go2 — Telemetría</label>
   <description>Telemetría en vivo del Unitree Go2 vía HEC. Video embebido desde mediamtx.</description>
 
+  <!-- El nombre del agente de ThousandEyes del robot, en UN solo lugar. Este dashboard es
+       del Go2: todo panel de TE filtra por este token. Si el agente se re-enrola con otro
+       nombre, se cambia acá y nada mas. -->
+  <init>
+    <set token="te_agent">go2-jetson-01</set>
+  </init>
+
   <fieldset submitButton="false" autoRun="true">
     <input type="time" token="tr">
       <label>Rango</label>
@@ -22,7 +29,7 @@
 | head 1
 | eval soc='battery.soc'
 | fields soc</query>
-          <refresh>30s</refresh>
+          <refresh>10s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
@@ -44,7 +51,7 @@
 | head 1
 | eval t='temp.motor_max'
 | fields t</query>
-          <refresh>30s</refresh>
+          <refresh>10s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
@@ -65,7 +72,7 @@
 | head 1
 | eval hz='topic_hz.lowstate'
 | fields hz</query>
-          <refresh>30s</refresh>
+          <refresh>10s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
@@ -86,7 +93,7 @@
 | head 1
 | eval mb=round('sent_bytes_today'/1024/1024,1)
 | fields mb</query>
-          <refresh>30s</refresh>
+          <refresh>10s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
@@ -154,7 +161,7 @@
 | eval cambio=prev." -&gt; ".curr
 | table _time kind cambio robot
 | sort - _time</query>
-          <refresh>30s</refresh>
+          <refresh>20s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
@@ -218,7 +225,7 @@
 | rex field=campo "^(?&lt;junta&gt;[A-Z]{2}_[a-z]+)\.(?&lt;metrica&gt;\w+)$"
 | where isnotnull(junta)
 | chart values(valor) over junta by metrica</query>
-          <refresh>30s</refresh>
+          <refresh>20s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
@@ -240,7 +247,7 @@
 | head 20
 | table _time mode gait_type error_code body_height yaw_speed
 | sort - _time</query>
-          <refresh>30s</refresh>
+          <refresh>20s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
@@ -252,19 +259,26 @@
   </row>
 
   <!-- ============ FILA 5: enlace del robot (ThousandEyes) ============ -->
-  <!-- Datos de ThousandEyes Integrations 2.0 (conector splunk-hec, OTel Data Model v2).
-       Metricas: network.loss (%), network.latency (SEGUNDOS), network.jitter (ms).
-       OJO con latency: v2 la manda en segundos, v1 la mandaba en ms. Por eso el *1000.
-       El indice `thousandeyes` tiene que ser de tipo METRICS: el exporter splunk_hec
-       manda metricas, no eventos. Las alertas si van a un indice de eventos.
-       Ver LICENCIA-Y-THOUSANDEYES.md para el alta del stream y del token. -->
+  <!-- Datos de ThousandEyes. Metricas: network.loss (%), network.latency (SEGUNDOS),
+       network.jitter (ms), OTel Data Model v2. OJO con latency: v2 la manda en segundos,
+       v1 la mandaba en ms. Por eso el *1000.
+       TODO filtra por $te_agent$: este es el dashboard del Go2 y solo se ve lo del Go2.
+       Hoy el unico test que lo involucra es "Agent to Agent Test" (go2-jetson-01 ->
+       TE-ENTERPRISE-SILK). Si se agregan mas tests desde el robot, entran solos.
+       El filtro va por `by` + `rename` + `where` y no dentro del WHERE de mstats: los
+       nombres de dimension llevan puntos y el quoting adentro de mstats es fragil. Con
+       este volumen de datos la diferencia de costo es nula y esto no se rompe.
+       Ver ../LICENCIA-Y-THOUSANDEYES.md §5 y §6. -->
   <row>
     <panel>
-      <title>Perdida del enlace (ThousandEyes)</title>
+      <title>Pérdida del enlace — $te_agent$</title>
       <single>
         <search>
-          <query>| mstats avg(network.loss) as loss WHERE index=thousandeyes
-| eval loss=round(loss,2)</query>
+          <query>| mstats avg(network.loss) as v WHERE index=thousandeyes by "thousandeyes.source.agent.name"
+| rename "thousandeyes.source.agent.name" as agente
+| where agente="$te_agent$"
+| stats avg(v) as v
+| eval v=round(v,2)</query>
           <refresh>60s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
@@ -279,11 +293,14 @@
     </panel>
 
     <panel>
-      <title>Latencia (ThousandEyes)</title>
+      <title>Latencia — $te_agent$</title>
       <single>
         <search>
-          <query>| mstats avg(network.latency) as lat WHERE index=thousandeyes
-| eval lat=round(lat*1000,1)</query>
+          <query>| mstats avg(network.latency) as v WHERE index=thousandeyes by "thousandeyes.source.agent.name"
+| rename "thousandeyes.source.agent.name" as agente
+| where agente="$te_agent$"
+| stats avg(v) as v
+| eval v=round(v*1000,1)</query>
           <refresh>60s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
@@ -298,11 +315,14 @@
     </panel>
 
     <panel>
-      <title>Jitter (ThousandEyes)</title>
+      <title>Jitter — $te_agent$</title>
       <single>
         <search>
-          <query>| mstats avg(network.jitter) as jit WHERE index=thousandeyes
-| eval jit=round(jit,1)</query>
+          <query>| mstats avg(network.jitter) as v WHERE index=thousandeyes by "thousandeyes.source.agent.name"
+| rename "thousandeyes.source.agent.name" as agente
+| where agente="$te_agent$"
+| stats avg(v) as v
+| eval v=round(v,1)</query>
           <refresh>60s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
@@ -317,34 +337,41 @@
     </panel>
 
     <panel>
-      <title>Agentes reportando</title>
+      <title>Agente ThousandEyes del robot</title>
+      <!-- El unico panel que dice algo util CON el robot apagado. Sin esto, un agente
+           caido y un test sin programar se ven exactamente igual: un hueco. -->
       <single>
         <search>
-          <query>| mstats avg(network.latency) as lat WHERE index=thousandeyes by "thousandeyes.source.agent.name"
-| rename "thousandeyes.source.agent.name" as agente
-| stats dc(agente) as agentes</query>
+          <query>index=thousandeyes_alerts sourcetype=thousandeyes:agent agent_name="$te_agent$"
+| stats latest(agent_state) as estado, latest(last_seen) as visto
+| eval Estado=upper(coalesce(estado,"sin datos"))
+| fields Estado</query>
           <refresh>60s</refresh>
           <refreshType>delay</refreshType>
-          <earliest>$tr.earliest$</earliest>
-          <latest>$tr.latest$</latest>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
         </search>
+        <!-- Texto, no 1/0. Contra: el coloreo del single value de Simple XML es SOLO
+             numerico (rangeValues compara numeros), asi que en texto se pierde el
+             rojo/verde. El semaforo vive en la tabla de al lado, que si sabe mapear
+             colores por string con <colorPalette type="map">. -->
         <option name="drilldown">none</option>
-        <option name="rangeColors">["0xdc4e41","0x53a051"]</option>
-        <option name="rangeValues">[0.5]</option>
-        <option name="useColors">1</option>
+        <option name="underLabel">estado del agente en ThousandEyes</option>
       </single>
     </panel>
   </row>
 
   <row>
     <panel>
-      <title>Enlace en el tiempo</title>
+      <title>Enlace del robot en el tiempo — $te_agent$</title>
       <chart>
         <search>
-          <query>| mstats avg(network.loss) as "Perdida (%)", avg(network.latency) as lat_s, avg(network.jitter) as "Jitter (ms)"
-    WHERE index=thousandeyes span=1m
-| eval "Latencia (ms)"=round(lat_s*1000,1)
-| fields - lat_s</query>
+          <query>| mstats avg(network.loss) as loss, avg(network.latency) as lat_s, avg(network.jitter) as jitter
+    WHERE index=thousandeyes span=5m by "thousandeyes.source.agent.name"
+| rename "thousandeyes.source.agent.name" as agente
+| where agente="$te_agent$"
+| eval "Pérdida (%)"=round(loss,2), "Latencia (ms)"=round(lat_s*1000,1), "Jitter (ms)"=round(jitter,2)
+| fields _time "Pérdida (%)" "Latencia (ms)" "Jitter (ms)"</query>
           <refresh>60s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
@@ -357,10 +384,37 @@
     </panel>
 
     <panel>
+      <title>Estado del agente — inventario ThousandEyes</title>
+      <table>
+        <search>
+          <query>index=thousandeyes_alerts sourcetype=thousandeyes:agent agent_name="$te_agent$"
+| stats latest(agent_state) as Estado, latest(last_seen) as "Último contacto",
+        latest(public_ip) as "IP pública", latest(network) as "Red / ISP",
+        latest(location) as Ubicación, latest(ip_addresses) as "IP interna",
+        latest(agent_type) as Tipo
+| transpose column_name=Campo
+| rename "row 1" as Valor</query>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <!-- Mapa de color por valor: esto SI funciona sobre strings, a diferencia del
+             rangeValues del single value. Es el semaforo real del panel de arriba. -->
+        <format type="color" field="Valor">
+          <colorPalette type="map">{"online":#53a051,"offline":#dc4e41,"sin datos":#f8be34}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
       <title>Alertas de ThousandEyes</title>
-      <!-- Las columnas quedan sin fijar a proposito: el payload del webhook de TE no
-           esta verificado contra un evento real todavia. Cuando llegue la primera
-           alerta, mirar los campos y fijar el `table`. -->
+      <!-- Vacio hasta que exista el webhook de alertas de TE. Las columnas quedan sin fijar
+           a proposito: el payload no esta verificado contra un evento real todavia. -->
       <table>
         <search>
           <query>index=thousandeyes_alerts sourcetype=thousandeyes:alert
@@ -376,4 +430,5 @@
       </table>
     </panel>
   </row>
+
 </form>
