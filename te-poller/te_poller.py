@@ -53,6 +53,12 @@ INTERVAL = float(os.environ.get("TE_POLL_INTERVAL_S", "300"))
 WINDOW = os.environ.get("TE_WINDOW", "10m")
 EVENT_INDEX = os.environ.get("TE_EVENT_INDEX", "thousandeyes_alerts")
 AGENTS = os.environ.get("TE_AGENTS", "")   # comma-separated agentName filter; empty = all
+# GET /agents returns Cloud agents too — over a THOUSAND of them, ThousandEyes' global fleet,
+# none of which are ours. Emitting those is what burned the daily byte cap on 2026-09-07/08/09
+# and froze the dashboard on a stale "offline". Only Enterprise agents are ours.
+AGENT_TYPES = frozenset(
+    t.strip() for t in os.environ.get("TE_AGENT_TYPES", "enterprise").split(",") if t.strip()
+)
 STATE_FILE = os.environ.get("TE_STATE_FILE", "/var/tmp/te-poller-state.json")
 TIMEOUT = float(os.environ.get("TE_HTTP_TIMEOUT", "20"))
 
@@ -176,8 +182,13 @@ def agent_envelopes(token):
 
     wanted = {a.strip() for a in AGENTS.split(",") if a.strip()}
     out = []
+    skipped = 0
     for a in data.get("agents", []):
         name = a.get("agentName", "")
+        # Type filter FIRST: it is the one that keeps ~1080 Cloud agents out of the index.
+        if AGENT_TYPES and a.get("agentType", "") not in AGENT_TYPES:
+            skipped += 1
+            continue
         if wanted and name not in wanted:
             continue
         state = a.get("agentState", "unknown")
@@ -205,6 +216,8 @@ def agent_envelopes(token):
             },
         }
         out.append(json.dumps(ev, separators=(",", ":")))
+    if skipped:
+        log(f"agents: {len(out)} emitted, {skipped} skipped by type filter {sorted(AGENT_TYPES)}")
     return out
 
 

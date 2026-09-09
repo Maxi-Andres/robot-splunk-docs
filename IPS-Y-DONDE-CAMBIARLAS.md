@@ -118,6 +118,9 @@ encontrar en todo el proyecto.
 
 ---
 
+> 📌 **Los puertos están en `PUERTOS.md`.** Este documento dice *dónde está cada cosa*; ese
+> dice *por qué puerto habla*, con los cuatro flujos que cruzan el LTE y el jitter medido.
+
 ## 7. Credenciales
 
 | Qué | Dónde vive | Nota |

@@ -244,3 +244,39 @@ def test_broken_pipe_is_handled_by_the_entry_point(tmp_path):
     assert "BrokenPipeError" not in err, err
     assert "Traceback" not in err, err
     assert "downstream closed" in err, "the guard in main() did not run: " + err
+
+
+CLOUD_AND_ENTERPRISE = {
+    "agents": [
+        {"agentId": "1", "agentName": "go2-jetson-01", "agentState": "online",
+         "agentType": "enterprise"},
+        {"agentId": "2", "agentName": "Tokyo, Japan", "agentState": "online",
+         "agentType": "cloud"},
+        {"agentId": "3", "agentName": "Frankfurt, Germany", "agentState": "online",
+         "agentType": "cloud"},
+        {"agentId": "4", "agentName": "TE-ENTERPRISE-SILK", "agentState": "online",
+         "agentType": "enterprise"},
+    ]
+}
+
+
+def test_cloud_agents_are_not_emitted(monkeypatch):
+    """GET /agents returns ThousandEyes' whole global Cloud fleet — over a thousand agents.
+
+    Reproduces the 2026-09-07/08/09 incident: emitting them was ~1086 events per pass, which
+    burned the 20 MB daily byte cap, so the shipper stopped and the dashboard froze showing a
+    stale "offline" while the agent was actually online. Only Enterprise agents are ours.
+    """
+    monkeypatch.setattr(te_poller, "api_get", lambda *a, **k: CLOUD_AND_ENTERPRISE)
+    monkeypatch.setattr(te_poller, "AGENTS", "")
+    got = [json.loads(x)["event"]["agent_name"] for x in te_poller.agent_envelopes("tok")]
+    assert got == ["go2-jetson-01", "TE-ENTERPRISE-SILK"]
+    assert "Tokyo, Japan" not in got
+
+
+def test_agent_type_filter_is_configurable(monkeypatch):
+    monkeypatch.setattr(te_poller, "api_get", lambda *a, **k: CLOUD_AND_ENTERPRISE)
+    monkeypatch.setattr(te_poller, "AGENTS", "")
+    monkeypatch.setattr(te_poller, "AGENT_TYPES", frozenset({"cloud"}))
+    got = [json.loads(x)["event"]["agent_name"] for x in te_poller.agent_envelopes("tok")]
+    assert got == ["Tokyo, Japan", "Frankfurt, Germany"]

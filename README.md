@@ -28,6 +28,7 @@ antes.
 | **Por qué el dashboard mostraba error de licencia, y cómo entra ThousandEyes** | **`LICENCIA-Y-THOUSANDEYES.md`** — incluye en §5 el plan para migrar al camino oficial de TE |
 | El puente que hoy trae los datos de ThousandEyes | `te-poller/README.md` — **temporal por diseño**, se borra al migrar |
 | **GPS del robot**: antena, módulo del IR1101, NMEA y sus trampas | `PLAN-CONECTIVIDAD-ROBOTS.md` **Fase 6** |
+| **Qué puerto usa cada cosa**, y los cuatro flujos que cruzan el LTE | **`PUERTOS.md`** — el compañero de `IPS-Y-DONDE-CAMBIARLAS.md` |
 | Qué IP es cada una y en qué archivo se cambia | `IPS-Y-DONDE-CAMBIARLAS.md` — regenerable con un grep |
 | Cómo actualizar el robot después del renombre | **`REDEPLOY-EN-EL-ROBOT.md`** — pendiente de ejecutar |
 
