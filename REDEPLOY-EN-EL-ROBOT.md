@@ -10,6 +10,26 @@ disponible.
 `192.168.123.161` sin respuesta). El procedimiento sale de leer las unidades systemd y los
 `.gitignore`, no de ejecutarlo allá. Verificá cada paso.
 
+> ⛔ **Dos correcciones del 2026-09-09, verificadas — el runbook original fallaba en las dos.**
+>
+> **1. Hay que clonar la rama `dev`, no la de por defecto.** Todo el trabajo vive en `dev` y
+> los remotos apuntan a otra cosa. Medido el 09-09:
+>
+> | Repo | Rama por defecto | Commits que faltarían al clonar sin `-b dev` |
+> |---|---|---|
+> | `robot-telemetry-agent` | `main` | **5** |
+> | `robot-command-relay` | **`master`** | **3** |
+> | `robot-video-pipeline` | `main` | **8** |
+>
+> Un `git clone` pelado deja el robot con código viejo —sin los fixes de CI, sin los tests,
+> sin el split de telemetría— y **no falla en el momento**: falla raro, después.
+> *(Pendiente aparte: decidir si se mergea `dev` a `main`/`master` o se vive en `dev`. Ojo
+> que `robot-command-relay` usa `master` y los otros dos `main`.)*
+>
+> **2. La IP de SSH depende de dónde esté el robot.** `192.168.123.18` sirve solo con el
+> robot en la LAN local. En campo, detrás del IR1101, se entra por el NAT del túnel:
+> **`10.1.254.18`**. Verificado el 09-09: `.123.18` sin respuesta, `10.1.254.18:22` abierto.
+
 ## Qué cambió
 
 | Antes, en el robot | Ahora |
@@ -51,14 +71,31 @@ El robot clona de GitHub, así que primero tiene que estar todo pusheado desde e
 ```bash
 cd ~/Desktop/robot-ecosystem
 for r in robot-splunk-docs robot-video-pipeline robot-telemetry-agent robot-command-relay; do
-  echo "== $r"; git -C $r status --short
+  echo "== $r  (rama: $(git -C $r branch --show-current))"
+  git -C $r status --short
+  git -C $r log --oneline @{u}..HEAD          # commits sin pushear
 done
 ```
+
+Y **confirmá que la rama que vas a clonar tiene lo último**, que es donde falla el
+procedimiento original:
+
+```bash
+for r in robot-video-pipeline robot-telemetry-agent robot-command-relay; do
+  git -C $r fetch -q origin
+  def=$(git -C $r symbolic-ref --short refs/remotes/origin/HEAD | sed 's|origin/||')
+  printf "%-24s default=%-7s dev adelante por %s commits\n" \
+    "$r" "$def" "$(git -C $r log --oneline origin/$def..origin/dev | wc -l)"
+done
+```
+
+Si alguno da distinto de 0, **cloná `dev`** (paso 3) o mergeá antes.
 
 ## Paso 1 — rescatar y auditar antes de borrar
 
 ```bash
-ssh unitree@192.168.123.18
+# En LAN local: 192.168.123.18 · En campo, por el tunel: 10.1.254.18
+ssh unitree@10.1.254.18
 
 mkdir -p ~/env-backup
 cp ~/robot-nvr-bridge/robot/video.env    ~/env-backup/ 2>/dev/null
@@ -90,9 +127,15 @@ sobreescriben en el paso 6. El único que desaparece es `robot-splunk-bridge.ser
 ```bash
 rm -rf ~/robot-splunk-bridge ~/robot-nvr-bridge
 cd ~
-git clone https://github.com/Maxi-Andres/robot-telemetry-agent.git
-git clone https://github.com/Maxi-Andres/robot-command-relay.git
-git clone https://github.com/Maxi-Andres/robot-video-pipeline.git
+# -b dev NO es opcional: la rama por defecto de los tres esta atrasada (ver el aviso de arriba)
+git clone -b dev https://github.com/Maxi-Andres/robot-telemetry-agent.git
+git clone -b dev https://github.com/Maxi-Andres/robot-command-relay.git
+git clone -b dev https://github.com/Maxi-Andres/robot-video-pipeline.git
+
+# comproba que quedaron en dev antes de compilar:
+for d in robot-telemetry-agent robot-command-relay robot-video-pipeline; do
+  echo "$d -> $(git -C ~/$d branch --show-current)"
+done
 ```
 
 ## Paso 4 — restaurar los `.env`
