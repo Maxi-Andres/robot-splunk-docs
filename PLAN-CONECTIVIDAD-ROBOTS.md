@@ -46,6 +46,9 @@ que DDS atraviese el IR1101, el paso está mal planteado.
 
 ---
 
+> **Agregado 2026-09-09:** el **GPS del robot** pasa de "no existe" a "hardware disponible,
+> sin configurar" — hay antena y módulo celular. Plan completo en la **Fase 6**.
+
 ## 2. Restricciones que no se negocian
 
 1. **Los dos robots son `192.168.123.161`** en bajo nivel. Imposible ponerlos en
@@ -238,6 +241,141 @@ Solo después de que el Go2 esté estable end-to-end.
 - [ ] Reservas DHCP para las MAC de los robots (evita peers rancios)
 
 **Criterio de salida:** los dos robots gestionables desde HQ sin conflicto de IP.
+
+---
+
+### Fase 6 — GPS: posición del robot en el dashboard
+
+**Planificada el 2026-09-09.** El hardware ya está: hay **antena GPS activa** (SMA, base
+magnética, 2.90 m) y **módulo celular pluggable confirmado** en el IR1101 — que es de donde
+sale el GNSS.
+
+> 🔑 **El chasis base del IR1101 NO tiene receptor GNSS.** El GPS lo da únicamente el módulo
+> celular pluggable, que es el que trae el conector SMA rotulado `GPS`. Sin módulo, la antena
+> no tiene dónde enchufarse. Acá el módulo está, así que el camino existe.
+
+#### 6.1. La antena que tenemos vs. la que vende Cisco
+
+Contrastada contra la `GPS-ACT-ANTM-SMA`, que es la que Cisco lista para este router:
+
+| Spec | Cisco GPS-ACT-ANTM-SMA | La nuestra | |
+|---|---|---|---|
+| Frecuencia | 1574.42–1576.42 MHz | 1575.42 MHz | ✅ |
+| Bias DC del puerto | **3–5 VDC** | requiere 5 V | ✅ entra en rango |
+| Consumo | 20 mA @3V / 30 mA @5V | <20 mA | ✅ |
+| Ganancia LNA | 27 dB típ | 29 ±3 dB | ✅ mismo orden |
+| Impedancia / VSWR | 50 Ω / ≤2:1 | 50 Ω / <1.5 | ✅ |
+| Cable | 5.18 m | 2.90 m | ✅ menos pérdida |
+| Conector | **SMA macho** | SMA, **género sin confirmar** | ⚠️ |
+
+**Lo único a verificar es el género**: el puerto del módulo es SMA hembra, así que la antena
+tiene que ser **SMA macho**. Si viene RP-SMA (pin invertido) no entra y hace falta adaptador.
+
+#### 6.2. Tres problemas físicos, ninguno eléctrico
+
+1. **La base magnética no sirve acá.** El cuerpo del Go2 es aluminio y plástico, y la caja
+   de la electrónica también. **No hay superficie ferrosa donde pegue el imán.** Hay que
+   resolver la sujeción de otra forma.
+2. **2.90 m de cable sobre algo que camina.** Hay que enrollar y fijar el sobrante: colgando
+   se engancha en las patas o se corta.
+3. **Adentro no hay señal.** GPS necesita cielo. Las pruebas de escritorio no van a mostrar
+   nada, y al aire libre la precisión es de **2 a 5 m** — sirve para "en qué parte del predio
+   está", no para navegación.
+
+#### 6.3. Configuración del IR1101
+
+```
+configure terminal
+ controller cellular 0/1/0
+  lte gps enable
+  lte gps mode standalone
+ end
+test cellular 0/1/0 modem-power-cycle     ← OBLIGATORIO: sin esto no toma
+show cellular 0/1/0 gps
+show cellular 0/1/0 gps detail
+```
+
+> ⚠️ El **power-cycle del módem no es opcional**: la config queda escrita y el GPS sigue
+> apagado hasta que se haga. Es el equivalente al *"cambiar el grupo de licencia"* de Splunk:
+> el paso que se olvida y hace parecer que algo está roto.
+
+> Desde IOS-XE 17.9.1 el GPS viene **habilitado por defecto**. Verificar la versión antes de
+> asumir que hay que activarlo.
+
+#### 6.4. Camino del dato hasta Splunk — sin decidir
+
+El router puede emitir **NMEA por UDP**, y el túnel al Meraki MX ya está operativo (§1):
+
+```
+ controller cellular 0/1/0
+  lte gps nmea ip udp <ip-origen> <ip-destino> <puerto>
+```
+
+| Opción | Cómo | Contra |
+|---|---|---|
+| **A. NMEA → receptor → HEC** | Un receptor UDP arma el evento y lo postea, igual que hace `te-poller` con la API de TE | Código propio, pero reusa `hec_shipper` |
+| **B. NMEA → input UDP de Splunk** | Sin código: Splunk escucha UDP y parsea con `props/transforms` | El parseo de NMEA en `props.conf` es incómodo |
+| **C. App IOx en el IR1101** | Ya hay precedente de IOx ahí (el contenedor de ThousandEyes); Cisco documenta leer el GPS por interfaz serie desde IOx | Tocar el IR1101, que hoy está declarado **intocable** (§2) |
+
+**Recomendación: A.** Es el mismo patrón que ya funciona y no toca el router más allá de la
+config de GPS.
+
+#### 6.5. Las dos trampas del NMEA
+
+> 🪤 **Las coordenadas NMEA NO son grados decimales.** Vienen en `ddmm.mmmm` — o sea
+> `3436.1234` es 34° 36.1234′, que en decimal es **34.60206**, no 34.36. Dividir por 100 da
+> un número *plausible pero mal*, y en Buenos Aires el error es de decenas de kilómetros sin
+> que nada se vea raro. **Es la misma clase de trampa que la latencia de ThousandEyes en ms
+> vs segundos** (`LICENCIA-Y-THOUSANDEYES.md` §6): un factor que no rompe nada, solo miente.
+>
+> La conversión correcta es `grados = trunc(ddmm/100) + (ddmm mod 100)/60`, y después el
+> signo según el hemisferio (`S` y `W` son negativos).
+
+> 🪤 **El NMEA sale a 1 Hz y eso es mucho más de lo que hace falta.** `GGA` + `RMC` son
+> ~150 B/s → **~13 MB/día** por robot. Con la Partner NFR de 50 GB no molesta, pero un robot
+> que camina no necesita posición por segundo: **downsamplear en el receptor a cada 5-10 s**.
+> Y va **en el receptor, no en Splunk**: la licencia cuenta bytes *ingresados*, filtrar del
+> lado de Splunk no ahorra nada (`PLAN.md` §5.1).
+
+Sentencias útiles: **`GGA`** (lat, lon, altitud, satélites, HDOP → calidad del fix) y
+**`RMC`** (lat, lon, velocidad, rumbo). `lte gps nmea filter <hex>` acota cuáles se emiten.
+
+#### 6.6. Del lado de Splunk
+
+Sigue la regla de **un índice y un token por robot** (`IPS-Y-DONDE-CAMBIARLAS.md` §7):
+**no** un índice nuevo, sino el que ya existe con un sourcetype propio.
+
+| | |
+|---|---|
+| Índice | `go2-robot-data` (el que ya está) |
+| Sourcetype | `robot:gps` |
+| Campos | `lat`, `lon` en **grados decimales**, `alt_m`, `sats`, `hdop`, `speed_kn`, `course_deg`, `fix_quality` |
+| Token | `Go2-01`, el mismo |
+
+En el dashboard va como panel `<map>` con `geostats`, en la fila de ThousandEyes o en una
+propia. Con `hdop` y `sats` a la vista: una posición con 2 satélites y HDOP alto **es una
+posición inventada**, y el panel tiene que dejarlo ver en vez de dibujar un punto confiado.
+
+#### 6.7. Alternativa si el módulo celular alguna vez no está
+
+Un **GPS USB en el Jetson**: el agente de telemetría ya corre ahí y ya postea al HEC, así que
+la posición sería un campo más — sin tocar el router, sin IOx y sin NMEA por UDP. Cuesta una
+fracción de un módulo celular y la antena que ya tenemos probablemente sirva igual.
+
+No es el camino elegido porque el módulo **está**, pero queda anotado.
+
+#### 6.8. Orden de ejecución
+
+| # | Paso | Necesita |
+|---|---|---|
+| 1 | Confirmar género del conector SMA de la antena | tenerla en la mano |
+| 2 | `show inventory` + `show controllers cellular 0/1/0 \| inc GPS` | robot prendido + CLI del IR1101 |
+| 3 | Resolver la sujeción de la antena (§6.2) | mecánico, no software |
+| 4 | Habilitar GPS y **power-cycle del módem** (§6.3) | CLI del IR1101 |
+| 5 | Verificar fix al aire libre con `show cellular 0/1/0 gps` | robot afuera |
+| 6 | Decidir el camino del dato (§6.4) — recomendado A | decisión |
+| 7 | Receptor + conversión `ddmm.mmmm` → decimal + downsample | código |
+| 8 | Panel `<map>` en el dashboard del Go2 | paso 7 |
 
 ---
 
