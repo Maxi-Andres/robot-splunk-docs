@@ -51,6 +51,44 @@ Renombrar in situ implicaría arreglar a mano los remotos, las rutas de tres uni
 GitHub. El único cuidado es que hay **dos archivos que no están en git** y que el `rm -rf` se
 lleva.
 
+> ⛔ **Tercera corrección del 2026-09-09 — la que más costó encontrar.**
+>
+> **Los `.env` que rescatás traen rutas del repo VIEJO adentro.** El runbook los trata como
+> si fueran solo valores propios del robot, y no: `relay.env` tenía
+>
+> ```
+> SENDER_BIN=/home/unitree/robot-splunk-bridge/command_sender
+> ```
+>
+> apuntando al repo que el `rm -rf` acababa de borrar. El relay arrancaba, no encontraba el
+> binario, salía con `FileNotFoundError`, y systemd lo bloqueaba tras cinco reintentos con
+> *"Start request repeated too quickly"*.
+>
+> Y es más sutil de lo que parece: **la unidad systemd ya traía la ruta correcta** en
+> `Environment=SENDER_BIN=...`, pero `EnvironmentFile=` viene después y **gana el último**.
+> O sea que el `.env` rescatado pisaba el valor bueno.
+>
+> **Después de restaurar los `.env`, buscá rutas muertas:**
+>
+> ```bash
+> grep -nE "robot-splunk-bridge|robot-nvr-bridge" \
+>   ~/robot-command-relay/relay.env ~/robot-video-pipeline/robot/video.env
+> ```
+>
+> Lo que se hizo el 09-09 fue más simple y quedó más limpio: **copiar el `.example` encima**.
+> Los valores de seguridad coincidían (`MAX_VX`, `MAX_VY`, `MAX_VYAW`, `DEADMAN_MS`) y el
+> ejemplo ya trae la ruta nueva. Verificá el diff antes: si alguien había bajado un límite de
+> velocidad a mano, el ejemplo te lo sube de vuelta sin avisar.
+>
+> ```bash
+> cd ~/robot-command-relay
+> cp relay.env ~/env-backup/relay.env.pre-limpieza
+> diff <(grep -E "^[A-Z_]+=" relay.env | sort) <(grep -E "^[A-Z_]+=" relay.env.example | sort)
+> cp relay.env.example relay.env
+> sudo systemctl reset-failed robot-command-relay   # destraba el limite de reintentos
+> sudo systemctl restart robot-command-relay
+> ```
+
 ### Lo que se pierde si no lo rescatás
 
 | Archivo | Qué guarda | Por qué no está en git |
@@ -177,6 +215,41 @@ curl -s localhost:8093/health                    # el MJPEG del robot
 journalctl -u robot-telemetry-agent -n 20 --no-pager
 ls /var/tmp/robot-splunk-spool/ | wc -l          # debería ir bajando
 ```
+
+### El video no llega: mirá primero el lado del servidor
+
+Ejecutado el 2026-09-09, y esto costó una hora. Con los tres servicios `active` y el robot
+capturando a 14 fps, **el video igual no llegaba**. Dos causas encadenadas:
+
+1. **La unidad de usuario `robot-video-pipeline` de la PC de HQ corría en modo captura
+   local** y publicaba al mismo path `robot` de mediamtx. **Un path admite un solo
+   publisher**, así que el `rtmpsink` del robot conectaba y moría con
+   `Could not write to resource / Failed to write data`.
+2. ⚠️ **Y `run.sh` de esa unidad NO corre solo la captura: también levanta mediamtx.**
+   Pararla para liberar el path **mata al receptor** y deja al robot publicando contra nada.
+
+**El arreglo correcto es `SERVER_ONLY=1`**, que es el modo que corresponde desde que la
+captura vive en el robot: mediamtx sí, captura local no.
+
+```bash
+mkdir -p ~/.config/systemd/user/robot-video-pipeline.service.d
+printf '[Service]\nEnvironment=SERVER_ONLY=1\n' \
+  > ~/.config/systemd/user/robot-video-pipeline.service.d/override.conf
+systemctl --user daemon-reload && systemctl --user restart robot-video-pipeline
+```
+
+Verificación desde HQ, en este orden:
+
+```bash
+pgrep -af mediamtx                                   # el receptor tiene que estar vivo
+pgrep -af go2_jpeg_stream                            # NO debe haber captura local
+ss -tn | grep :1935                                  # ESTAB desde la IP del robot
+curl -s localhost:5000/api/stats | python3 -c "import sys,json;print(json.load(sys.stdin)['cameras'])"
+```
+
+Resultado del 09-09: `ESTAB 192.168.20.99:1935 ← 10.1.254.18`, Frigate en **5.1 fps** estables.
+
+---
 
 Detalle a tener en cuenta: el `/health` del relay contesta **sin token**, que es justamente
 el hallazgo P0·5 de la auditoría. Cuando eso se arregle, ese `curl` va a necesitar el
