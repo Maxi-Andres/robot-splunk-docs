@@ -15,8 +15,10 @@ disponible.
 > **1. La rama. RESUELTO el 2026-09-10.** Durante un tiempo todo el trabajo vivió en `dev`
 > mientras la rama por defecto quedaba atrás — 5, 4 y 8 commits en cada repo — así que un
 > `git clone` pelado dejaba el robot con código viejo **sin fallar en el momento**. Se
-> unificó: `dev` se mergeó a la rama principal y **el robot vive en `main`**. El
-> `git clone` de abajo vuelve a ser correcto.
+> unificó: `dev` se mergeó a la rama principal por PR y **el robot vive en la principal**
+> — verificado en el robot el 10-09, los tres repos en `main`/`master` y los tres
+> servicios `active` sin recompilar (el contenido era idéntico). El `git clone` de abajo
+> vuelve a ser correcto.
 >
 > Igual, la lección queda: **verificá qué rama clonaste antes de compilar** (paso 3), porque
 > el modo en que esto falla es silencioso.

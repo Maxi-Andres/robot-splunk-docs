@@ -15,7 +15,7 @@ Si vas a marcar tráfico, es esto y nada más. El resto es local a cada lado.
 | Sentido | Puerto | Medido | Si se demora |
 |---|---|---|---|
 | robot → HQ | **1935** RTMP → mediamtx | ~218 KB/s | el video se entrecorta |
-| robot → HQ | **8093** MJPEG → `camera_bridge` | ~228 KB/s | ídem — **y es la misma imagen, duplicada** |
+| robot → HQ | **8093** MJPEG → `camera_bridge` | **~105 KB/s** (eran 228 hasta el 10-09) | ídem — **y es la misma imagen, duplicada** |
 | robot → Splunk | **8088** HEC | KB/s | llega tarde, con su timestamp correcto |
 | **HQ → robot** | **8092** relay de comandos | bytes | ⚠️ **el robot no frena cuando se lo pedís** |
 | HQ → robot | 22 SSH | — | administración |
@@ -24,6 +24,12 @@ Si vas a marcar tráfico, es esto y nada más. El resto es local a cada lado.
 > robot** y es el más chico por varios órdenes de magnitud. Los otros tres suman ~450 KB/s
 > subiendo. El marcado que corresponde: comandos en **EF/CS5**, telemetría en **AF21**, los
 > dos videos en **best-effort**.
+
+> ⚡ **10-09: `MJPEG_FPS=5` + `MJPEG_QUALITY=55`.** Ese stream salía **sin tope** a 14 fps y
+> se comía 218 KB/s, ahogando al RTMP: la cola del NVR vivía llena (8) con 15.228 frames
+> descartados y Frigate en 0 fps. Con el tope bajó a 105 KB/s, la cola quedó en 0, los
+> descartes se detuvieron y Frigate volvió a 5.1 fps estables. **`MJPEG_FPS=0` es el default
+> y es el valor equivocado en campo.**
 
 > 📉 **Medido el 09-09, con y sin video:** el RTT al robot es **46 ms de media, 95 de pico,
 > 0% de pérdida** con el enlace descargado, y **57 ms de media** con los 450 KB/s de video.
