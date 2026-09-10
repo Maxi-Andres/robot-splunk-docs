@@ -10,46 +10,23 @@ disponible.
 `192.168.123.161` sin respuesta). El procedimiento sale de leer las unidades systemd y los
 `.gitignore`, no de ejecutarlo allá. Verificá cada paso.
 
-> ⛔ **Dos correcciones del 2026-09-09, verificadas — el runbook original fallaba en las dos.**
+> ⛔ **Correcciones del 2026-09-09/10 — el runbook original fallaba en tres cosas.**
 >
-> **1. Hay que clonar la rama `dev`, no la de por defecto.** Todo el trabajo vive en `dev` y
-> los remotos apuntan a otra cosa. Medido el 09-09:
+> **1. La rama. RESUELTO el 2026-09-10.** Durante un tiempo todo el trabajo vivió en `dev`
+> mientras la rama por defecto quedaba atrás — 5, 4 y 8 commits en cada repo — así que un
+> `git clone` pelado dejaba el robot con código viejo **sin fallar en el momento**. Se
+> unificó: `dev` se mergeó a la rama principal y **el robot vive en `main`**. El
+> `git clone` de abajo vuelve a ser correcto.
 >
-> | Repo | Rama por defecto | Commits que faltarían al clonar sin `-b dev` |
-> |---|---|---|
-> | `robot-telemetry-agent` | `main` | **5** |
-> | `robot-command-relay` | **`master`** | **3** |
-> | `robot-video-pipeline` | `main` | **8** |
+> Igual, la lección queda: **verificá qué rama clonaste antes de compilar** (paso 3), porque
+> el modo en que esto falla es silencioso.
 >
-> Un `git clone` pelado deja el robot con código viejo —sin los fixes de CI, sin los tests,
-> sin el split de telemetría— y **no falla en el momento**: falla raro, después.
-> *(Pendiente aparte: decidir si se mergea `dev` a `main`/`master` o se vive en `dev`. Ojo
-> que `robot-command-relay` usa `master` y los otros dos `main`.)*
+> ⚠️ `robot-command-relay` usa **`master`** y los otros dos `main`. Un `for` sobre los tres
+> se rompe en ese. Pendiente unificarlo desde GitHub.
 >
 > **2. La IP de SSH depende de dónde esté el robot.** `192.168.123.18` sirve solo con el
 > robot en la LAN local. En campo, detrás del IR1101, se entra por el NAT del túnel:
 > **`10.1.254.18`**. Verificado el 09-09: `.123.18` sin respuesta, `10.1.254.18:22` abierto.
-
-## Qué cambió
-
-| Antes, en el robot | Ahora |
-|---|---|
-| `~/robot-splunk-bridge` | **partido en dos:** `~/robot-telemetry-agent` y `~/robot-command-relay` |
-| `~/robot-nvr-bridge` | `~/robot-video-pipeline` |
-| `robot-splunk-bridge.service` | `robot-telemetry-agent.service` |
-| `robot-command-relay.service` | mismo nombre, rutas nuevas |
-| `robot-video.service` | mismo nombre, rutas nuevas |
-| `relay/relay.env` | `relay.env`, en la raíz del repo del relay |
-
-En el robot los repos van **sueltos en `~`**, sin el paraguas `robot-ecosystem/` que existe en
-el escritorio. Las unidades apuntan a `/home/unitree/<repo>`.
-
-## Por qué borrar y reclonar, y no renombrar
-
-Renombrar in situ implicaría arreglar a mano los remotos, las rutas de tres unidades y el
-`relay/` que dejó de existir. Reclonar es más corto y deja el robot idéntico a lo que hay en
-GitHub. El único cuidado es que hay **dos archivos que no están en git** y que el `rm -rf` se
-lleva.
 
 > ⛔ **Tercera corrección del 2026-09-09 — la que más costó encontrar.**
 >
@@ -165,12 +142,13 @@ sobreescriben en el paso 6. El único que desaparece es `robot-splunk-bridge.ser
 ```bash
 rm -rf ~/robot-splunk-bridge ~/robot-nvr-bridge
 cd ~
-# -b dev NO es opcional: la rama por defecto de los tres esta atrasada (ver el aviso de arriba)
-git clone -b dev https://github.com/Maxi-Andres/robot-telemetry-agent.git
-git clone -b dev https://github.com/Maxi-Andres/robot-command-relay.git
-git clone -b dev https://github.com/Maxi-Andres/robot-video-pipeline.git
+git clone https://github.com/Maxi-Andres/robot-telemetry-agent.git
+git clone https://github.com/Maxi-Andres/robot-command-relay.git
+git clone https://github.com/Maxi-Andres/robot-video-pipeline.git
 
-# comproba que quedaron en dev antes de compilar:
+# Verifica la rama ANTES de compilar. El robot va en la principal (`main`, y `master` en el
+# relay); `dev` es desarrollo y NO va al robot. Si alguno cae en otra rama, algo se
+# desincronizo del lado de GitHub y hay que mirarlo antes de seguir.
 for d in robot-telemetry-agent robot-command-relay robot-video-pipeline; do
   echo "$d -> $(git -C ~/$d branch --show-current)"
 done
