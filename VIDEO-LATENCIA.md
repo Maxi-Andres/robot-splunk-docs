@@ -52,6 +52,82 @@ El plan prometía *"7× menos datos"*. **Hasta este arreglo eso era falso.** Aho
 medido, y 1.28 Mbps entra en los 2.8 Mbps del enlace LTE — que era la condición aritmética
 de todo el plan A.
 
+### 1.3 Línea de base por cable, 9 minutos continuos (2026-09-11)
+
+Las dos ramas en paralelo, con los tres arreglos puestos. **Las ventanas cortas de 60 s no
+mostraban nada; hizo falta el rato largo.**
+
+| | MJPEG `:8093` | WebRTC `:8889/robot` |
+|---|---|---|
+| cuadros | 2486 en 540 s | 2630 en 540 s |
+| fps | 4.60 | 4.62 |
+| resolución | 1920×1080 | 1920×1080 |
+| bitrate **por visor** | **8.91 Mbps** | **1.39 Mbps** |
+| latencia captura→acá | p50 233, p95 328, **max 5231 ms** | sin stamp |
+| cadencia | 216 ms | — |
+| frenadas | **15** > 2× cadencia, peor **1952 ms** | **3 freezes**, 3.49 s acumulados, peor hueco **1697 ms** |
+| **pérdida de paquetes** | — | **0 / 84.898** |
+| jitter buffer | — | 7 ms |
+
+#### Hallazgo 1 — MJPEG escala por visor, H.264 no
+
+Contadores de `eth0` del robot durante la misma ventana:
+
+```
+robot eth0 TX total : 20.02 Mbps
+  de eso RTMP/H.264 :  1.40 Mbps
+  MJPEG             :  8.91 Mbps x 2 visores (el bridge + la sonda) = 17.8 Mbps
+  suma explicada    : 19.2 Mbps  vs  20.02 medidos   (el resto es SSH y telemetría)
+```
+
+**El robot sirve una copia completa del MJPEG a cada visor.** Dos visores son 17.8 Mbps. El
+H.264 sale **una sola vez** a 1.40 Mbps y mediamtx lo reparte en HQ, así que no cambia con la
+cantidad de visores.
+
+Es un argumento a favor del plan A que el plan **no hace**: la ventaja no es 6.7×, es
+6.7× **por visor**. Con el drive abierto y el dashboard de Splunk mirando a la vez, hoy son
+dos copias; mañana con un segundo operador serían tres.
+
+#### Hallazgo 2 — el congelamiento está en el transporte, y es reordenamiento, no pérdida
+
+> **Corrección.** La primera lectura de esta línea de base decía "el congelamiento no es del
+> enlace" y apuntaba al videohub, porque las dos ramas se frenaban con cero pérdida. Una
+> segunda corrida que **separa las etapas** lo desmiente. Queda acá el resultado bueno.
+
+El stamp de `mjpeg_server` trae dos tiempos del robot que nadie había usado. Con ellos, 540 s
+y 2539 cuadros estampados:
+
+| etapa | qué es | medido |
+|---|---|---|
+| cadencia de origen (`t_in`) | el videohub entregando a `mjpeg_server` | 210 ms mediana, **0 frenadas**, peor 289 ms |
+| costo de `mjpeg_server` (`t_out - t_in`) | nuestro proceso | **p50 0.2 ms**, max 2.8 ms |
+| transporte (`t_out` → acá) | enlace y lectura | p50 229, p95 278, **max 1525 ms** |
+| llegada al visor | lo que se ve | 215 ms mediana, **7 frenadas**, peor 836 ms |
+
+**De las 7 frenadas en el visor, 0 coinciden con una frenada de origen.** El videohub es
+regular y nuestro tee cuesta dos décimas de milisegundo: **el congelamiento nace aguas abajo
+de `mjpeg_server`**.
+
+Y el mecanismo aparece en los contadores TCP de los propios sockets:
+
+```
+socket MJPEG :8093  ->  rcv_ooopack: 15455     (sobre 2.59 GB recibidos)
+socket RTMP  :1935  ->  rcv_ooopack:  2888
+```
+
+**Reordenamiento masivo, por cable.** TCP no puede entregar un byte hasta tener los
+anteriores, así que un paquete que llega fuera de orden frena todo lo que venía detrás: es
+*head-of-line blocking*, y explica que la rama MJPEG (TCP) se congele mientras la rama
+WebRTC (UDP) **no se congela** — 0 freezes y 0 pérdida en 300 s limpios.
+
+**Qué cambia respecto del plan.** El §2.1 tiene razón en la conclusión —hay que salirse de
+TCP— pero no en la causa: lo atribuye a **retransmisión por pérdida**, y lo medido es
+**reordenamiento sin pérdida** (`packetsLost = 0` sobre 48.397 en WebRTC). La diferencia
+importa para elegir: el ARQ de SRT recupera paquetes perdidos, que acá no faltan. Lo que
+sirve de SRT contra este síntoma es su **tolerancia al reordenamiento** dentro del
+presupuesto de `latency`, no el ARQ. Y el plan B (UDP crudo) también lo evitaría, porque el
+problema no es la pérdida sino el orden.
+
 ---
 
 ## 2. Los tres defectos que encontramos (ninguno estaba en el plan)
@@ -130,13 +206,13 @@ muerta. **La causa sigue abierta.**
 
 ### 3.2 Nada se midió sobre LTE ni Starlink
 
-**Todo lo de arriba es por cable, o sea el mejor caso.** Y aun así aparecieron, antes de los
-arreglos, una frenada de 547 ms en MJPEG y un freeze de 708 ms en WebRTC **con 6 paquetes
-perdidos de 45.054**.
+**Todo lo de arriba es por cable, o sea el mejor caso.** Y la rama MJPEG **se congela igual**:
+15 frenadas en 9 minutos, la peor de 1952 ms, con cero pérdida de paquetes — por
+reordenamiento TCP (§1.3, Hallazgo 2). La rama WebRTC, en cambio, no se congeló en 300 s
+limpios.
 
-> Que el congelamiento se reproduzca sin LTE es un dato **en contra** de la hipótesis central
-> del plan, que lo atribuye a la pérdida del enlace. Vale entenderlo antes de construir ARQ
-> para tapar algo que puede no ser pérdida.
+Sobre LTE hay que esperar pérdida **además** del reordenamiento, y ahí sí el ARQ de SRT
+aporta algo que hoy no aporta. Es la medición que falta para decidir entre el plan A y el B.
 
 ---
 
@@ -149,7 +225,9 @@ perdidos de 45.054**.
 | H.264 da 7× menos datos | **Ahora sí**, 6.7× medido — pero solo después del arreglo 2.3. Antes era 1.2×. |
 | mediamtx+WebRTC podría bufferear como Frigate | **Refutada.** ~127 ms, no segundos. |
 | `whipsink` no está disponible (inferencia) | **Confirmada.** El robot tiene GStreamer **1.16.3**; `whipsink` llegó en 1.22. |
-| El congelamiento lo causa la pérdida del enlace | **Dudosa.** Se reprodujo por cable con ~0 pérdida. |
+| El congelamiento lo causa la **pérdida** del enlace | **Corregida, no refutada.** Es del transporte, pero por **reordenamiento**: 15.455 paquetes fuera de orden en el socket MJPEG, con `packetsLost = 0`. Salirse de TCP sigue siendo la respuesta; el ARQ no es lo que la da. |
+| El videohub es el cuello de botella del congelamiento | **Refutada.** Cadencia de origen regular, **0 frenadas** en 540 s; `mjpeg_server` cuesta 0.2 ms. Sigue siendo cierto que aporta ~650 ms de latencia, que es otra cosa. |
+| La ventaja de H.264 es ~7× | **Es 6.7× POR VISOR.** El robot sirve una copia entera del MJPEG a cada cliente (17.8 Mbps con dos); el H.264 sale una vez a 1.40 Mbps y mediamtx reparte. El plan no hace este argumento y es el más fuerte. |
 | La meta "cero huecos > 200 ms" | **Inalcanzable a 5 fps**: 5 fps *son* 200 ms de cadencia. Hoy `MJPEG_FPS=5` y `NVR_FPS=5`. Si WebRTC va a ser la vista en vivo, `NVR_FPS` tiene que subir, y eso multiplica el bitrate. |
 
 ---
@@ -204,10 +282,16 @@ reemplazo es un **código de barras quemado en los píxeles**, que sobrevive H.2
 
 ## 7. Qué sigue
 
-**Lo inmediato, y no necesita LTE:** dejar corriendo la medición de las dos ramas por cable
-para tener la línea de base completa y estable con los tres arreglos puestos. Las
-herramientas del §6 ya hacen las dos ramas; falta correrlas juntas en ventanas largas y
-anotar el resultado acá.
+**Hecho:** la línea de base por cable está en el §1.3.
+
+**Hecho también:** la atribución por etapa (§1.3, Hallazgo 2). El congelamiento está en el
+transporte TCP, por reordenamiento.
+
+**Lo inmediato, y no necesita LTE:** el reordenamiento de 15.455 paquetes **por cable** no es
+normal y no lo explicamos. El plan lo dejó fuera de alcance (§6, "arreglar el enlace"), pero
+ahora es la causa medida del síntoma que originó todo. Vale mirar el camino: el túnel del
+IR1101, el bonding o el balanceo por si reparte paquetes de un mismo flujo entre rutas.
+Si se corrigiera ahí, el MJPEG actual dejaría de congelarse sin tocar nada más.
 
 **Lo que necesita LTE**, cuando vuelva: repetir exactamente esas dos mediciones. Con 1.28 Mbps
 la rama H.264 por fin entra en el enlace de campo, así que la comparación es posible por
@@ -221,9 +305,11 @@ primera vez.
 
 **Antes de montar SRT**, dos cosas deberían decidirse con datos y no con el plan de entrada:
 
-1. Si el congelamiento aparece también sin pérdida (§3.2), el ARQ de SRT no es la respuesta
-   a ese síntoma, y la investigación debería ir a la cadencia con que el tee alimenta al
-   encoder.
+1. **El congelamiento es reordenamiento, no pérdida** (§1.3, Hallazgo 2). De SRT lo que
+   sirve contra esto es su tolerancia al reordenamiento dentro del presupuesto de `latency`,
+   **no el ARQ**. Conviene decidirlo con ese criterio: si el objetivo es solo dejar de
+   congelarse, el plan B (UDP crudo) ya lo consigue y tiene menos piezas. El ARQ recién se
+   justifica cuando haya pérdida real, o sea sobre LTE.
 2. `NVR_FPS=5` hace que la rama H.264 no pueda ser la vista en vivo (§4, última fila).
    Subirla es condición previa a que WebRTC reemplace al MJPEG, y hay que re-medir el bitrate
    después de subirla — el divisor del §2.3 depende de ese número.
