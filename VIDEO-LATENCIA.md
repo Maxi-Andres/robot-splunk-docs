@@ -137,6 +137,75 @@ menos bytes, menos pérdida, menos frenadas, sin tocar el enlace ni el transport
 > Regla que queda: para pérdida en un flujo TCP, mirar `bytes_retrans` **del emisor**. Los
 > contadores del receptor y los de una capa distinta engañan.
 
+### 1.4 Paso 3 del plan — SRT anda, y dos defectos más que lo tapaban (2026-09-14)
+
+**La hipótesis central del plan A era correcta.** El robot conectó a `srt-live-transmit`
+1.5.4 sin un solo problema, y sin rastro del `REJECT reported from HS processing`:
+
+```
+Accepted SRT source connection   desde 10.1.254.18:54707
+path srtin -> ready: True   tracks: ['H264']
+```
+
+Y el ARQ hace lo que el plan prometía. Sobre 353 s:
+
+```
+246.062 paquetes   642 perdidos (0.26%)   685 retransmitidos   0 descartados   6 tardios
+rtt 9.2 ms   presupuesto 150 ms   buffer usado 1 ms
+```
+
+**Pérdida real, recuperada entera, usando 1 ms de los 150 de presupuesto.** Sobre cable eso
+deja muchísimo margen para LTE.
+
+Pero el video **no se veía**, y detrás había dos defectos independientes.
+
+#### Defecto A — `mpegtsmux` sin `alignment=7` se come los keyframes
+
+SRT en modo live lleva **como máximo 1316 bytes por mensaje** (7 x 188 de MPEG-TS).
+`mpegtsmux` sin `alignment` emite buffers de tamaño libre y **`srtsink` descarta en silencio
+los que no entran** — que son los grandes, o sea los keyframes.
+
+Mismo pipeline, 26 s, cambiando solo esa propiedad:
+
+| | IDR | SPS | PPS |
+|---|---|---|---|
+| `mpegtsmux` | **0** | 0 | 0 |
+| `mpegtsmux alignment=7` | **8** | 8 | 8 |
+
+Falla de la peor manera posible: el robot publica, SRT reporta 0 descartes, mediamtx dice
+`tracks: ['H264']`, el browser recibe 42.388 paquetes y 49 MB — y `framesDecoded` en **0**.
+Todas las capas se ven sanas menos la que importa. `ffprobe` lo delata con
+`non-existing PPS 0 referenced`.
+
+#### Defecto B — el salto UDP por loopback perdía el 15% de los cuadros
+
+Con los keyframes ya pasando, el video decodificaba pero se congelaba: **20 freezes que
+sumaban 64.6 s** en 6 minutos, con `packetsLost = 0`. Los números no cerraban: el pipeline
+del robot emite **4.55 fps** medidos con `filesink`, SRT entrega con **0 descartes**, y
+mediamtx veía **3.86 fps**.
+
+El tramo que faltaba mirar era el único que no había medido nadie: el
+`udp://127.0.0.1:9000` entre `srt-live-transmit` y mediamtx. El kernel lo confirmó con
+**`UdpRcvbufErrors`** creciendo. mediamtx trae `udpReadBufferSize: 0`, o sea el default de
+212 KB, y **un keyframe es una ráfaga** — justo lo que desborda un buffer chico. Y perder un
+pedazo de keyframe cuesta todo hasta el siguiente.
+
+Con `udpReadBufferSize: 4194304` (tope de `net.core.rmem_max` acá):
+
+| | antes | después |
+|---|---|---|
+| freezes en 180 s | **20** (64.6 s) | **0** |
+| fps decodificado | 3.0 | **4.66** |
+| peor hueco | 3305 ms | **421 ms** |
+| `UdpRcvbufErrors` en 60 s | crecía | **0** |
+
+> ⚠️ **Esto le falta al mediamtx de producción.** Hoy no le afecta porque recibe RTMP
+> (`source: publisher`), pero el día que se mueva el camino SRT a producción hay que poner
+> `udpReadBufferSize` ahí también, o el defecto B vuelve idéntico.
+
+**Pasos 4 y 5 del plan: cumplidos por cable.** Cero freezes, 0 pérdida sobre 31.446 paquetes,
+jitter buffer 26 ms, 1.40 Mbps, 1920x1080.
+
 ---
 
 ## 2. Los tres defectos que encontramos (ninguno estaba en el plan)
