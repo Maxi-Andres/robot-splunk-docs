@@ -415,6 +415,78 @@ Descubierto el 2026-09-15, y es el que arruinó `/drive` durante un día entero.
 **Sin causa raíz.** Queda abierto por qué el mismo mediamtx entrega a RTSP/RTMP 2.3 s más tarde
 que a WebRTC.
 
+### 6.c El reescalado del MJPEG costaba 105 ms · **ARREGLADO 2026-09-16, era la cuota de CPU**
+
+Servir el MJPEG a 1080p tal como llega de la cámara cuesta **13.79 Mbps**, que no pasa por un
+enlace de campo. Reducirlo a 640 lo deja en **1.56 Mbps** — pero reducirlo costaba **105 ms**.
+
+**No era el reescalado.** El trabajo real, medido en banco sobre el propio Jetson:
+
+```
+decode 1080p   20.7 ms
+resize a 640    6.1 ms
+encode JPEG     2.1 ms
+               ───────
+               28.1 ms        ...contra 105 ms medidos en producción
+```
+
+**Los 77 ms que faltaban eran CPU congelada**, y hay prueba directa del kernel.
+`robot-video.service` tenía `CPUQuota=50%` y `Nice=10`, aplicado al **cgroup entero** — porque
+`run-video.sh` lanza `go2_jpeg_stream`, `mjpeg_server.py` y `gst-launch` como un solo pipeline,
+así que comparten un único presupuesto:
+
+```
+nr_periods     30418
+nr_throttled   14059      ← el 46% de los períodos, CONGELADOS
+throttled_time 1909 s acumulados
+```
+
+`CPUQuota` es un techo **absoluto**: cuando el cgroup gasta sus 50 ms de cada 100, CFS frena
+todas sus tareas hasta el período siguiente. Un stall de hasta ~100 ms que **no aparece como
+espera en ningún lock ni profiler** — por eso el banco medía 28 ms y producción 105.
+
+**Cómo llegamos acá**, que es la parte que conviene no repetir. El comentario del archivo decía:
+
+> *"Video encode is hardware-accelerated, so this stays cheap — but cap it anyway: nothing on
+> this machine may compete with the robot's control stack."*
+
+La premisa era cierta mientras el pipeline fue **todo hardware** (`nvjpegdec` → `nvvidconv` →
+`nvv4l2h264enc`). El día que se agregó el reescalado con OpenCV —que es CPU— la cuota que
+sobraba pasó a estrangular. La intención estaba bien; la forma de expresarla dejó de servir.
+
+**El arreglo: `CPUQuota` → `CPUWeight`.** `CPUWeight` es un peso **relativo**: solo muerde bajo
+contención real, que es lo que "no debe competir con el control" significa de verdad. Y el
+stack de control no dependía de esta cuota: `robot-telemetry-agent` y `robot-command-relay`
+tienen la suya.
+
+| | antes | después |
+|---|---|---|
+| costo del reescalado | 105.1 ms p50 | **29.4 ms** |
+| máximo | 194.1 ms | **34.5 ms** |
+| `/drive` | 10.2 fps | **11.8 fps** |
+| rama H.264 / Frigate | 1.34 Mbps | sin cambios |
+| `nr_throttled` | creciendo | **congelado** |
+
+Los 29.4 ms que quedan son trabajo real (28.1 medidos en banco), no espera.
+
+> ⚠️ **En el robot está aplicado con `systemctl set-property --runtime`, que se borra al
+> reiniciar.** Para que quede: `git pull` en el robot y
+> `sudo cp robot/robot-video.service /etc/systemd/system/ && sudo systemctl daemon-reload`.
+
+**Descartado con medición:** `cv2.IMREAD_REDUCED_COLOR_2/4/8` parecía el atajo obvio (libjpeg
+decodifica en el dominio DCT a escala reducida). **OpenCV 4.2.0 en este Jetson ignora el
+flag** — los tres devuelven 1920x1080 y tardan lo mismo. No hay atajo por software.
+
+**Validado y pendiente:** el reescalado por hardware (`nvjpegdec ! nvvidconv ! nvjpegenc` sobre
+los dos motores NVJPG del Orin NX) da **10.5 ms por cuadro** contra 28. Probado fuera del
+servicio. Dos trampas encontradas al validarlo:
+- Los caps **tienen que ser `video/x-raw(memory:NVMM)`**. Con memoria de sistema el pipeline
+  **arranca y produce 0 bytes en silencio** (`not-negotiated`).
+- `nvvidconv` **no preserva aspect ratio**: hay que fijar ancho **y** alto.
+
+Bajaría de 29.4 a ~15 ms —17 ms sobre un glass-to-glass de ~250 ms, un 7%— pero además
+**libera ~36% de un núcleo**, que en este robot vale por sí solo.
+
 ## 7. Lo que no se resolvió
 
 - **El double free de `nvv4l2h264enc`** sigue sin causa. Descartados con medición: bitrate, CBR,
