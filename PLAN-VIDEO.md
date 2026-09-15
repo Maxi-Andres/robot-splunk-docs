@@ -477,15 +477,50 @@ Los 29.4 ms que quedan son trabajo real (28.1 medidos en banco), no espera.
 decodifica en el dominio DCT a escala reducida). **OpenCV 4.2.0 en este Jetson ignora el
 flag** — los tres devuelven 1920x1080 y tardan lo mismo. No hay atajo por software.
 
-**Validado y pendiente:** el reescalado por hardware (`nvjpegdec ! nvvidconv ! nvjpegenc` sobre
-los dos motores NVJPG del Orin NX) da **10.5 ms por cuadro** contra 28. Probado fuera del
-servicio. Dos trampas encontradas al validarlo:
-- Los caps **tienen que ser `video/x-raw(memory:NVMM)`**. Con memoria de sistema el pipeline
-  **arranca y produce 0 bytes en silencio** (`not-negotiated`).
-- `nvvidconv` **no preserva aspect ratio**: hay que fijar ancho **y** alto.
+### El reescalado por hardware · **IMPLEMENTADO Y CORRIENDO 2026-09-16**
 
-Bajaría de 29.4 a ~15 ms —17 ms sobre un glass-to-glass de ~250 ms, un 7%— pero además
-**libera ~36% de un núcleo**, que en este robot vale por sí solo.
+`mjpeg_server.py` ahora reescala en los motores NVJPG del Orin NX, por un subproceso
+`gst-launch` persistente alimentado por pipes. El proceso Python volvió a ser lo que su
+docstring fundacional dice — *"no decode, no re-encode, no resize"*.
+
+| | al empezar | sin la cuota de CPU | **por hardware** |
+|---|---|---|---|
+| costo del reescalado (p50) | 105.1 ms | 29.4 ms | **12.8 ms** |
+| máximo | 194.1 ms | 34.5 ms | **17.8 ms** |
+| CPU del `mjpeg_server` | 22.4% | 22.4% | **3.0%** |
+
+**8.2× mejor que al empezar, y el máximo 10.9×.** La instrumentación nueva de `/health` prueba
+la atribución sin lugar a dudas: `wait_ms_p50` **0.2**, `work_ms_p50` **12.7**. Ya no queda
+nada escondido — es todo trabajo, y el trabajo es hardware.
+
+**Tres trampas que costaron encontrarlas y están cableadas en el código:**
+
+1. **Los caps tienen que ser `video/x-raw(memory:NVMM)`.** Con memoria de sistema el pipeline
+   **arranca y produce 0 bytes en silencio** (`not-negotiated`). Validado fuera del servicio
+   antes de escribir una línea de Python, que es lo que lo hizo barato de descubrir.
+2. **`nvvidconv` no preserva aspect ratio** — hay que fijar ancho **y** alto, los dos pares.
+   La altura sale de parsear el marcador SOF del JPEG, sin decodificarlo.
+3. **`quality=55` de `nvjpegenc` NO es el `quality=55` de libjpeg.** Usan tablas de
+   cuantización distintas: a 55 el cuadro pasó de 20 a 24 KB y el tráfico de 1.56 a 1.94 Mbps.
+   **Con `quality=35` vuelve exactamente a 1.56 Mbps.** Ya está persistido en el robot.
+
+**La red de seguridad**, porque este es el camino que mira el operador:
+
+- Cascada `hardware → cv2 → bytes originales`. Ningún nivel puede lanzar hacia afuera.
+- **Lockstep, un cuadro en vuelo**: escribir uno, esperar uno. Hace imposible que se acumule
+  latencia dentro de GStreamer, que era la única forma en que esto podía salir peor que cv2.
+- **Deadline de 200 ms en escritura Y lectura.** Un JPEG de 1080p son ~200 KB y un pipe tiene
+  64: escribir a un hijo que no lee **bloquea**. Al vencer se mata el hijo y se pasa a cv2 —
+  no se intenta resincronizar, porque el stream ya quedó a destiempo.
+- **El stderr del hijo se drena en un hilo**; si no, se llena el pipe y el hijo se cuelga.
+- Tras **3 fallos seguidos** el camino de hardware se abandona para siempre en ese proceso.
+- **`hw` es parámetro en vivo**: `POST /video-config {"hw":0}` lo apaga desde el relay, **sin
+  SSH y sin reiniciar**. Es la reversión más barata posible.
+
+> **Invariante que el código respeta y hay que seguir respetando:** el payload COM del
+> `stamp()` sigue siendo `AVL1 <float> <float>`. Tres lectores lo parsean con
+> `a, b = body.split()` y un tercer número los rompe **en silencio** — los cuadros pasarían a
+> contar como "unstamped". Toda métrica nueva va a `/health`.
 
 ## 7. Lo que no se resolvió
 
