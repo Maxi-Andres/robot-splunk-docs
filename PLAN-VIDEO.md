@@ -3,15 +3,24 @@
 > Documento único: el plan y el estado real, con casilleros para ir tildando. El detalle de
 > cada medición está en [`VIDEO-LATENCIA.md`](VIDEO-LATENCIA.md); acá está el mapa y qué sigue.
 >
-> Última revisión: **2026-09-14**.
+> Última revisión: **2026-09-15**.
 
 ---
 
 ## 0. La aclaración que hay que leer antes que nada
 
-**La latencia absoluta de este video NUNCA se midió, y el "culpable" que este documento daba
-por sentado resultó ser falso.** Las dos cosas hay que leerlas juntas, porque casi todo lo que
-sigue se escribió antes de saberlas.
+**MEDIDA EL 2026-09-15: ~100-235 ms, y el "culpable" que este documento daba por sentado no
+existía.** El video nunca tuvo un problema de latencia. Lo que tenía segundos de atraso era
+**un cliente nuestro**, no el robot.
+
+| camino | glass-to-glass |
+|---|---|
+| MJPEG directo del robot | **235-300 ms** (instrumentado) |
+| H.264 por WebRTC, multicast | **~100 ms** |
+| H.264 por WebRTC, videohub | **~200 ms** |
+| H.264 leído por OpenCV/RTSP | **2455 ms** ⚠️ |
+
+Todo lo que sigue se escribió antes de saber esto, así que hay que leerlo con esa luz.
 
 **Lo que se creía:** que el videohub del Go2 (`GetImageSample`, request/response) metía
 **~650 ms** y era el 90% del problema.
@@ -25,9 +34,9 @@ sigue se escribió antes de saberlas.
   re-encode) tienen **la misma latencia**, por dos métodos independientes. Si saltear el
   videohub no cambia nada, el videohub no era el problema.
 
-**Conclusión: hay una latencia sin ubicar, aguas arriba de los dos caminos** —cámara, ISP o
-el encoder del propio robot— **y no sabemos cuánto es.** Ningún cambio de fuente ni de
-transporte la tocó hasta ahora.
+**Conclusión (cerrada el 2026-09-15): no había ninguna latencia sin ubicar.** Los dos caminos
+medían igual porque los dos son rápidos: el total, de la cámara a la pantalla, son ~200 ms.
+El "650" era ruido de reloj y nunca hubo nada grande que encontrar aguas arriba.
 
 El H.264 nativo **sí está resuelto** (§3) y compró cosas reales —2.5× menos bits por cuadro,
 3.2× los cuadros, el Jetson sin trabajo de encoder— pero **latencia no**. Se lee por **RTP
@@ -38,13 +47,23 @@ perseguía **no sirve** (§3.1).
 
 ## 1. Dónde está la latencia
 
-**Solo las etapas de abajo del videohub están medidas de verdad.** El total absoluto no, y el
-reparto tampoco: sin un glass-to-glass confiable no se sabe qué fracción del total es cada
-fila, ni cuánto queda sin explicar.
+> ✅ **MEDIDO EL 2026-09-15.** El glass-to-glass ya no es una incógnita. Método en §10: una
+> página que servimos nosotros, con un reloj y un panel que parpadea, filmada por la cámara
+> del robot. Los dos extremos son nuestro reloj, así que no hay nada que sincronizar.
+>
+> | camino | glass-to-glass |
+> |---|---|
+> | **MJPEG directo del robot** (lo que usa `/drive` en modo MJPEG) | **235-300 ms** |
+> | **H.264 por WebRTC** (WHEP desde mediamtx) | **~100 ms** multicast · ~200 ms videohub |
+> | H.264 leído por **OpenCV/RTSP** (lo que hacía el bridge) | **2455 ms** ⚠️ defecto, §6 |
+>
+> **No hay ninguna latencia de origen inexplicada.** El "tramo desconocido" que este documento
+> daba por sentado no existe: la cámara, el robot y el enlace juntos entregan en ~100-200 ms. Lo
+> que costaba segundos era **un cliente**, no el robot.
 
 | etapa | costo | estado |
 |---|---|---|
-| **el tramo de origen (cámara → primer byte que sale del robot)** | **DESCONOCIDO** | el "~650 ms" era un error de reloj (§0). No pasa por el videohub: saltearlo no cambió nada |
+| **el tramo de origen (cámara → primer byte que sale del robot)** | **chico** | el total por MJPEG es 235 ms, y eso incluye la cámara, el robot, el enlace y el visor. El "~650 ms del videohub" era un error de reloj (§0) y además no cabe en el total |
 | `mjpeg_server` (el tee en el robot) | 0.2 ms | medido, no es problema |
 | cadencia a 5 fps | ~200 ms | perilla: subir `NVR_FPS` |
 | presupuesto ARQ de SRT | 150 ms configurados, **1 ms usados** | perilla: bajarlo mucho |
@@ -53,11 +72,13 @@ fila, ni cuánto queda sin explicar.
 | transporte MJPEG (234 KB/cuadro) | **225-240 ms** | eliminado al pasar a H.264 |
 | transporte H.264 (~37 KB/cuadro) | ~35 ms | el que corre hoy |
 
-> **Ojo con sumar esta tabla.** Todo lo medido acá junto no llega a 400 ms, y la única
-> medición de punta a punta que existe hoy —control-to-photon, §9— dio una mediana de
-> ~1076 ms **incluyendo la demora mecánica del robot**, que no está separada. La diferencia
-> es justamente el tramo de origen desconocido. **Hasta tener el glass-to-glass (§9 opción 2),
-> optimizar cualquier fila de abajo es apretar perillas sin saber qué fracción tocan.**
+> **Ahora la tabla cierra.** Lo medido acá suma menos de 400 ms y el total real es 235 ms por
+> MJPEG y ~200 ms por WebRTC, así que no queda nada grande sin explicar. Las perillas de abajo
+> son las que quedan, y son chicas — que es una buena noticia: **el sistema ya está en el
+> orden de magnitud que hace falta para manejar.**
+>
+> El control-to-photon del §9 dio ~1076 ms porque incluye la demora mecánica del robot en
+> arrancar, que resultó ser de 0.3 a 1.9 s. Ese número mide otra cosa y no contradice a estos.
 
 ---
 
@@ -128,25 +149,52 @@ udpsrc address=230.1.1.1 port=1720 multicast-iface=eth0
 - [x] **Probado de punta a punta** robot→RTMP→mediamtx: **627 cuadros en 45 s (13.9 fps),
       decodificando limpio, sin huecos**.
 
-### 3.3 Cómo se compara con lo que corre hoy
+### 3.3 Videohub vs multicast — el cuadro completo, medido el 2026-09-15
 
-| | hoy (videohub + re-encode) | multicast nativo |
+|  | **videohub** (`SOURCE=jpeg`) | **multicast** (`SOURCE=multicast`) |
 |---|---|---|
-| resolución | 1080p | **720p** |
-| cuadros | ~4.7 fps | **13.9 fps** |
-| robot→HQ | 1.42 Mbps | **2.02 Mbps** |
-| **por cuadro** | 0.30 Mbit | **0.145 Mbit** — la mitad |
-| CPU/GPU del Jetson | decode JPEG + encode H.264 | **nada, es passthrough** |
-| **latencia** | — | **IGUAL. No mejoró** (§3.4) |
+| **resolución** | 1920x1080 | 1280x720 |
+| **cuadros (H.264)** | **8.5 fps** con `NVR_FPS=15` · 4.5 fps con `NVR_FPS=5` | **14.0 fps** |
+| **bitrate robot→HQ** | 0.80 Mbps a 15 · 1.43 Mbps a 5 | **2.12 Mbps** |
+| **latencia H.264** (vista del operador) | **~200 ms** | **~100 ms** |
+| **latencia MJPEG** (`/drive`) | **235-300 ms** (instrumentado) | — no hay MJPEG |
+| **carga del Jetson** | decodifica JPEG + encodea H.264 | **nada, es passthrough** |
+| **perilla de bitrate** | `BITRATE`, `NVR_FPS`, `IDR_FRAMES` | **ninguna** — decide el encoder de Unitree |
+| **`/drive` en H.264** | anda | **anda** |
+| **`/drive` en MJPEG** | **anda** | **muerto** |
+| **YOLO y el VLM** | **andan** | **muertos** |
+| **Frigate / NVR** | anda | anda |
+| **double free del encoder** | posible (mitigado por el supervisor) | **imposible, no hay encoder** |
 
-**3× los cuadros por 1.4× el ancho de banda**, y el doble de eficiencia por cuadro. El costo es
-720p en vez de 1080p, y que **el bitrate lo decide el encoder de Unitree** — supera por poco el
-objetivo de 2 Mbps y no tenemos perilla para bajarlo salvo cambiar de escalón.
+**Multicast gana en casi todo:** más cuadros, la mitad de latencia, el Jetson libre y el double
+free eliminado por construcción. **Pierde en dos cosas, y las dos importan:**
 
-> **La fila de latencia decía "videohub ~650 ms" contra "no pasa por ahí", y estaba mal.**
-> Prometía una ventaja que la medición del §3.4 desmiente: los dos caminos miden igual. Y el
-> 650 nunca fue un dato confiable (§0). **Este cambio se justifica por ancho de banda, cuadros
-> y carga del Jetson — no por latencia.**
+1. **Mata el MJPEG**, y con él `/drive` en modo MJPEG, YOLO y el VLM — porque los tres comen
+   del bridge y el bridge se queda sin fuente. El sustituto obvio (leer `rtsp://mediamtx`)
+   **cuesta 2.4 s**, ver §6.b.
+2. **No tiene perilla de bitrate.** Manda 2.12 Mbps, por encima del objetivo de 2 Mbps, y no
+   hay forma de bajarlo salvo cambiar de escalón de resolución. En cable da igual; sobre LTE
+   o Starlink es el único número que no se puede negociar.
+
+> **Los 8.5 fps del videohub con `NVR_FPS=15` son el encoder del Jetson ahogándose**, no un
+> defecto de configuración: decodificar JPEG y re-encodear a H.264 a 15 fps en 1080p no le
+> entra. Bajando a `NVR_FPS=5` queda estable en 4.5 fps. Ese techo es exactamente lo que el
+> multicast elimina.
+
+> ⚠️ **Qué está instrumentado y qué no, porque no es lo mismo:**
+>
+> - **El MJPEG sí**: `latency_clock.py` da **235 ms** y **300 ms** en dos corridas, con picos
+>   de 10.9 y 20.9 sigmas. Número firme.
+> - **La rama H.264 NO se puede instrumentar desde acá.** El único cliente H.264 disponible
+>   para un script es OpenCV, que es justamente el que arrastra el defecto del §6.b: medirla
+>   así da 3550 ms con un pico de 3.5 sigmas, y eso **mide el lector, no la rama**. El propio
+>   banco lo marca como no citable.
+> - **Para el H.264, el navegador es el único instrumento que hay**, y da ~100 ms con
+>   multicast y ~200 con videohub, leídos con las dos vistas en la misma pantalla — método
+>   inmune a atrasos de display, pero a ojo.
+>
+> **Esto no se arregla midiendo mejor: se arregla teniendo un cliente H.264 de baja latencia.**
+> Hasta que el bridge (o el banco) hable WHEP, la rama H.264 solo se puede estimar mirándola.
 
 ### 3.4 Lo que falta para ponerlo en producción
 
@@ -181,9 +229,10 @@ objetivo de 2 Mbps y no tenemos perilla para bajarlo salvo cambiar de escalón.
       *(b)* el **mismo reloj leído por los dos caminos** en cuadros que llegaron en el mismo
       milisegundo: los dos marcan `48:24.4xx`.
 
-      > **El H.264 nativo NO sacó los ~650 ms.** Como los dos caminos son iguales, esa latencia
-      > está **aguas arriba de los dos** — en la cámara, el ISP o el encoder del propio robot —
-      > y ningún cambio de fuente ni de transporte la toca.
+      > **El H.264 nativo NO sacó los ~650 ms** — porque esos 650 ms no existían (§0). Los dos
+      > caminos midieron igual en aquella comparación porque **los dos son rápidos**: medidos
+      > el 2026-09-15, uno da ~100 ms y el otro ~200. La diferencia entre ambos es del orden
+      > de un cuadro, que es justo lo que aquel método por correlación no podía resolver.
 
 - [ ] ⚠️ **Y los ~650 ms del videohub quedan EN DUDA como número.** Se midieron comparando un
       cronómetro en pantalla contra el `t_in` del robot, que es exactamente el método que hoy
@@ -320,6 +369,52 @@ los plugins y se la mide contra las otras con un comando.
 > `tests/reader_bench.py` antes de activar, `lag_s` en `/status` después— porque **fps
 > promedio no sirve para comprobarlo** y fue justamente lo que hizo perder el tiempo.
 
+### 6.b ⚠️ DEFECTO ABIERTO: leer mediamtx con OpenCV cuesta 2.4 s de retardo FIJO
+
+Descubierto el 2026-09-15, y es el que arruinó `/drive` durante un día entero.
+
+**El síntoma:** `cv2.VideoCapture("rtsp://127.0.0.1:8554/robot")` entrega cuadros que ya tienen
+**2455 ms de antigüedad**, sobre el mismo stream que WebRTC entrega en 200 ms.
+
+**Medido de dos formas independientes:**
+
+- Por correlación con el panel que parpadea: 2455 ms, r=0.95, 17-24 sigmas.
+- Leyendo el reloj en cuadros de una misma conexión, a ojo:
+
+  ```
+  llegó 38.109 → reloj 35.6xx      llegó 43.161 → reloj 40.6xx
+  llegó 40.142 → reloj 37.6xx      llegó 50.121 → reloj 47.6xx
+  ```
+
+  **Constante desde el primer cuadro. NO se acumula.**
+
+**Lo que NO es** (todo descartado con medición, no con razonamiento):
+
+| descartado | cómo |
+|---|---|
+| el robot o el enlace | los mismos bytes salen por WebRTC en 200 ms |
+| acumulación del lector | idéntico a los 0, 2, 5 y 12 s de la misma conexión; `lag_s` da 0.00 |
+| opciones de FFmpeg | `probesize`, `analyzeduration`, `max_delay`, `reorder_queue_size`, `threads`, TCP vs UDP — **ninguna lo mueve**, y se verificó que se aplicaran de verdad |
+| `writeQueueSize` de mediamtx | bajarlo a 32 no cambió la latencia **y rompió a Frigate** con artefactos (`reader is too slow, discarding 45 frames`). Revertido |
+| caché de GOP en mediamtx | no la tiene para RTSP — [issue #1209](https://github.com/bluenviron/mediamtx/issues/1209) |
+
+**Escala con el cliente, no con el stream.** Tres consumidores del mismo path, a la vez:
+
+| cliente | latencia |
+|---|---|
+| WebRTC / WHEP (el navegador) | **200 ms** |
+| Frigate (su propio ffmpeg) | 1475 ms |
+| OpenCV/FFmpeg (el bridge) | **2455 ms** |
+
+> ⚠️ **Y esto es lo importante para el que venga:** `SOURCE=multicast` apaga el `mjpeg_server`,
+> así que es tentador apuntar el bridge a `rtsp://mediamtx` para darle una fuente. **NO LO
+> HAGAS.** Eso fue exactamente lo que se hizo el 2026-09-14 (commit `791d9d8`) y metió 2.4 s
+> en la vista de manejo. Si hace falta que el bridge coma H.264, el camino es **WHEP**, que es
+> el que el navegador ya usa a 200 ms.
+
+**Sin causa raíz.** Queda abierto por qué el mismo mediamtx entrega a RTSP/RTMP 2.3 s más tarde
+que a WebRTC.
+
 ## 7. Lo que no se resolvió
 
 - **El double free de `nvv4l2h264enc`** sigue sin causa. Descartados con medición: bitrate, CBR,
@@ -362,6 +457,13 @@ Y en `unitree_ros2/robot_camera_bridge/tests/`:
 |---|---|
 | `reader_bench.py` | **si un lector le sigue el ritmo a su fuente**, por deriva y sin relojes |
 
+Y la más importante, en `robot-video-pipeline/tests/video-bench/`:
+
+| archivo | qué mide |
+|---|---|
+| **`latency_clock.py`** | **el glass-to-glass absoluto**, sirviendo el reloj nosotros mismos. Ver §9 |
+| `control_to_photon.py` | lo que el operador siente al manejar. **No** sirve para latencia de video (§9) |
+
 ```
 python3 tests/reader_bench.py --url rtsp://127.0.0.1:8554/robot --seconds 180 --fps 15 grab
 python3 tests/reader_bench.py ... --stall-at 30 --stall-for 12 --profile --bucket 2 grab
@@ -379,144 +481,119 @@ verificado 109/109 tras codificar a 1.5 Mbps.
 
 ---
 
-## 9. Estado exacto al 2026-09-14, para retomar sin contexto previo
+## 9. Estado exacto al 2026-09-15, para retomar sin contexto previo
+
+### La decisión que hay que tomar primero: `SOURCE`
+
+**No hay una configuración que gane en todo.** Las dos están medidas:
+
+| | `SOURCE=jpeg` | `SOURCE=multicast` |
+|---|---|---|
+| H.264 | 1080p, **8.5 fps**, 798 kbps | 720p, **14.0 fps**, 2.12 Mbps |
+| Jetson | decodifica JPEG + encodea | **nada, es passthrough** |
+| Frigate / NVR | anda | **anda** |
+| `/drive` en **H.264** (WebRTC) | anda, ~200 ms | **anda, ~200 ms** |
+| `/drive` en **MJPEG** | **anda, 235 ms** | **muerto** |
+| YOLO y el VLM | **andan** | **muertos** |
+
+**Por qué muere la mitad con multicast:** no hay JPEG en ese camino, así que `run-video.sh`
+apaga el `mjpeg_server`, y el bridge —que alimenta el modo MJPEG, YOLO y el VLM— se queda sin
+fuente. `/drive` en H.264 **no** pasa por el bridge (va por WebRTC directo), por eso sobrevive.
+
+**Los 8.5 fps del modo `jpeg` son el encoder del Jetson ahogándose** a 1080p con `NVR_FPS=15`.
+No es un defecto: es que decodificar JPEG y re-encodear a H.264 a 15 fps no le entra.
+
+> **Elegí así:** si vas a teleoperar y querés YOLO o el VLM, `SOURCE=jpeg`. Si solo necesitás
+> la vista H.264 y el NVR, `multicast` da más cuadros por menos trabajo.
+
+### Cómo se mide la latencia ahora (y por qué esta vez sí funcionó)
+
+`robot-video-pipeline/tests/video-bench/latency_clock.py`. Sirve una página con dos canales:
+
+1. **Un reloj enorme, blanco sobre negro.** Para leer a ojo, y para el truco de la captura:
+   poner la vista del robot y la página en la misma pantalla y sacar UNA foto — la diferencia
+   entre los dos relojes es el glass-to-glass, sin suponer nada sobre relojes.
+2. **Un panel que parpadea** entre negro y gris medio siguiendo una secuencia que el servidor
+   reparte. Se mide por brillo promedio y se correlaciona. **No hace falta leer ningún dígito**
+   —que es lo que hundió todos los intentos anteriores, porque los milisegundos salen borrosos—
+   ni sincronizar ningún reloj ajeno: el servidor y el lector son la misma máquina.
+
+```bash
+python3 latency_clock.py serve --port 8100          # abrir en una pantalla que la camara vea
+python3 latency_clock.py measure --seconds 45 \
+    --source mjpeg=http://10.1.254.18:8093/stream \
+    --source h264=rtsp://127.0.0.1:8554/robot
+```
+
+Tres cosas que aprendió a los golpes y están cableadas adentro:
+
+- **Gris medio, no blanco.** Una pantalla blanca satura la cámara; es la otra mitad de por qué
+  el cronómetro fracasó.
+- **La página reporta su propia sincronización** al servidor por HTTP, y `measure` **se niega a
+  dar un número** si no la tiene. Una página sin sincronizar mide *su* reloj y el resultado se
+  ve igual de creíble — así salieron los -710 ms y los -1400 ms de antes.
+- **Las fuentes `http://` se leen SIN FFmpeg**, con un escáner de JPEG crudo. Medir el MJPEG a
+  través de FFmpeg le cobraría el defecto del §6.b, que es del lector y no de la rama.
 
 ### Qué está corriendo ahora mismo
 
-**En el robot** (`10.1.254.18`, Jetson, `robot-video`, commit `a603628`):
+**En el robot** (`10.1.254.18`, Jetson, `robot-video.service`):
 
 ```
-SOURCE=multicast    ← el H.264 nativo, passthrough, sin decodificar ni encodear
-PROTO=rtmp          MJPEG_ENABLE=1 (pero multicast lo apaga solo)
-NVR_FPS=5   MJPEG_FPS=5   BITRATE=1500000   STAMP=1   MAXFPS=0
+SOURCE=multicast    NVR_FPS=15    MJPEG_FPS=15    BITRATE=1500000    STAMP=1
 ```
 
-El pipeline vivo es `udpsrc 230.1.1.1:1720 ! rtph264depay ! h264parse ! flvmux ! rtmpsink`.
-1280x720, ~14 fps, 1.78 Mbps hacia HQ.
+1280x720 a 14.00 fps, **2.12 Mbps** hacia HQ — por encima del objetivo de 2 Mbps del plan, y
+sin perilla para bajarlo (§7).
 
-**En HQ:** mediamtx de producción con el path `robot`, Frigate grabando (720p, 14.3 fps
-reales; su `camera_fps: 5` es la tasa de DETECCIÓN, no la de grabación), y el bridge
-`robot_camera_bridge` corriendo en el devcontainer de `unitree_ros2`.
+**En HQ:** mediamtx bajo systemd (`robot-video-pipeline.service`), Frigate grabando, y el
+bridge en el devcontainer **sin fuente** (multicast apaga el MJPEG).
 
-### Lo que está roto ahora y por qué
+### Lo que se arregló el 2026-09-15
 
-~~**`/drive` en MJPEG no muestra nada.**~~ **ARREGLADO 2026-09-14.** Era exactamente eso:
-`SOURCE=multicast` apaga `mjpeg_server` y el `.env` del bridge seguía apuntando a
-`http://10.1.254.18:8093/stream`. Ahora lee `rtsp://127.0.0.1:8554/robot` (mediamtx local,
-loopback). Verificado en vivo: **~13.8 fps al backend**, `robot_cam.live: true`, `lag_s` 0.01.
-`/drive`, YOLO y el VLM vuelven a tener fuente. Detalle completo en §6.
-
-**Con el botón `H.264` sí se ve**, pero hay que aceptar el certificado **una vez**: la app se
-sirve por HTTPS y mediamtx ahora habla TLS en el 8889 con un autofirmado (`CN=mediamtx`, sin
-SAN). Abrir `https://<host>:8889/` y aceptar la excepción — el browser la pide **por puerto**.
+- [x] **`/drive` volvió a 235 ms** revirtiendo el `STREAM_URL` a `http://<robot>:8093/stream`.
+      El cambio a `rtsp://` del commit `791d9d8` metía 2.4 s (§6.b).
+- [x] **`robot-video-pipeline.service` estaba en bucle de reinicio con el contador en 17.822.**
+      Alguien había levantado mediamtx a mano y la unidad chocaba con el puerto 8000 en cada
+      intento, ~1 por segundo. Ahora mediamtx corre bajo systemd y la unidad quedó `active`.
+- [x] **Bug del guardián de atraso**: había quedado copiado en `HttpStreamSource` además de en
+      `RtspStreamSource` (un `str.replace` sin contar ocurrencias), así que `/status` reventaba
+      con `AttributeError: '_lag_peak'` apenas el bridge volvía a MJPEG. Corregido, 24 tests.
 
 ### Cambios sin commitear
 
 | repo | archivo | qué |
 |---|---|---|
-| `robot-video-pipeline` | `mediamtx.yml` | `webrtcEncryption: yes` + `auto.crt`/`auto.key`. Sin esto el switch H.264 falla: la página es HTTPS y el browser bloquea contenido mixto. |
-| `robot-video-pipeline` | `tests/video-bench/correlate.py` | **nuevo** — compara dos caminos por contenido, sin relojes |
-| `robot-video-pipeline` | `tests/video-bench/README.md` | documenta `correlate.py` (§4) y renumera la sección de aislamiento a §5 |
-| `unitree_ros2` | `robot_camera_bridge/camera_sources.py` | `grab()`/`retrieve()` (se queda, con el comentario corregido) + **guardián de atraso**: `lag_s`/`lag_peak_s` en `/status` |
-| `unitree_ros2` | `robot_camera_bridge/tests/test_rtsp_lag.py` | **nuevo** — 5 tests del guardián, sin sockets ni robot |
-| `unitree_ros2` | `robot_camera_bridge/tests/reader_bench.py` | **nuevo** — puntúa un lector contra su fuente antes de activarlo |
-| `robot-splunk-docs` | `PLAN-VIDEO.md` | este documento |
+| `robot-video-pipeline` | `tests/video-bench/latency_clock.py` | **nuevo** — el medidor de glass-to-glass |
+| `robot-video-pipeline` | `tests/video-bench/control_to_photon.py` | **nuevo** — el método que no sirvió, documentado con su límite |
+| `robot-video-pipeline` | `tests/video-bench/correlate.py`, `README.md` | de la sesión anterior |
+| `robot-video-pipeline` | `robot/run-video.sh`, `robot/video.env.example` | sacado el "650 ms" falso; anotado que multicast no cruza la red pero pierde la perilla de bitrate |
+| `robot-video-pipeline` | `mediamtx.yml` | solo el `webrtcEncryption` de la sesión anterior (el `writeQueueSize` se revirtió) |
+| `unitree_ros2` | `robot_camera_bridge/camera_sources.py` | guardián de atraso, sin duplicar |
+| `unitree_ros2` | `robot_camera_bridge/tests/` | `test_rtsp_lag.py`, `reader_bench.py` |
+| `robot-splunk-docs` | `PLAN-VIDEO.md`, `VIDEO-LATENCIA.md` | estos documentos |
 
-`robot_camera_bridge/.env` también cambió (`STREAM_URL` → el RTSP), pero está gitignoreado:
-es config local, no entra al commit. `ruff check` limpio y `pytest` en verde (24 pasan, 1
-`xfail` que es el techo de buffer del scanner MJPEG, defecto viejo y distinto).
+En el robot cambió `video.env` (`SOURCE`, `NVR_FPS`, `MJPEG_FPS`), que es config local y no va
+al repo. `robot_camera_bridge/.env` también, por lo mismo.
 
-### El lector RTSP: cerrado, y por qué el número engañaba
+### La latencia absoluta: RESUELTA el 2026-09-15
 
-Ver §6 para el detalle. En una línea: **el lector nunca se atrasó**. Los 12.91 fps eran un
-promedio acumulado que se comía los 4.7 s de arranque (2.35 s de abrir el RTSP + 2.39 s
-esperando el primer IDR); en régimen consume **14.23 fps, la tasa exacta de la fuente**, con
-deriva +0.0 ms/s sobre 180 s y recuperación de una demora de 12 s en menos de 2.
+Era el pendiente más viejo del documento. **~100-235 ms** según el camino, ver §1. El método y sus tres
+trampas están arriba; acá quedan los intentos que fallaron, para no repetirlos:
 
-Lo que llevó `/drive` a ~8 s queda **sin causa confirmada**. Hay dos candidatos vivos, los dos
-del código de esa época y los dos ya arreglados desde entonces, así que no se puede reproducir
-sin volver atrás a propósito:
+| intento | por qué falló |
+|---|---|
+| Cronómetro en pantalla vs reloj del robot | dio **-710 ms** y **-1400 ms**: negativos, o sea imposibles. El reloj de la otra máquina no es el nuestro y además deriva |
+| Offset por `ssh` | la conexión tarda cientos de ms y el punto medio no representa cuándo corrió el comando |
+| Leer los dígitos de ms en el video | salen un borrón. Los segundos sí se leen, y alcanzan |
+| Pantalla blanca | satura la cámara. Gris medio resuelve |
+| **Control-to-photon** (mover el robot y detectar el arranque) | la idea es sana pero el marcador no: el robot tarda entre **311 y 1855 ms** en arrancar visiblemente. Ese desvío es del orden del número buscado y **no se promedia** — es un sesgo con varianza. Sirve para "lo que el operador siente" (~1076 ms), no para latencia de video. Herramienta en `control_to_photon.py`, con su límite documentado |
 
-- el gate `_due()` viejo, que con fuente apenas bajo el tope entregaba la mitad de los cuadros
-  (medido entonces: fuente 14.8, tope 15, salida 8.3 fps). Arreglado el 2026-09-11 con
-  `_JITTER_TOLERANCE`.
-- la fuente de entonces era el camino videohub re-encodeado, con la base de tiempo `1/1`
-  (7.0 Mbps con 1.5 configurados) y el 15% de cuadros perdidos en el salto UDP por loopback.
-  Los dos arreglados también.
-
-**No vale la pena perseguirlo**: lo que importa es que hoy hay un instrumento que lo habría
-visto el primer minuto, y avisa solo.
-
-### Lo que falta medir, y cómo hacerlo bien
-
-**La latencia absoluta sigue sin número confiable.** Todos los intentos de hoy fallaron por la
-misma razón: comparar contra un reloj que no es el nuestro.
-
-- Cronómetro en pantalla vs reloj del robot: dio **-710 ms** y **-1400 ms**, negativos e
-  inconsistentes. El reloj de la notebook no está sincronizado y además deriva.
-- Offset por `ssh`: inservible, la conexión tarda cientos de ms y el punto medio no
-  representa cuándo corrió el comando.
-
-**El cronómetro en cuadro queda DESCARTADO para este robot.** No es solo que los dígitos de
-milisegundos se borronean: la pantalla **satura la cámara** y no se lee nada útil. Probado.
-
-**Tres alternativas, ninguna necesita leer un dígito ni sincronizar relojes ajenos:**
-
-1. ~~**Control-to-photon — la más práctica.**~~ **PROBADA 2026-09-14. NO SIRVE para medir el
-   video.** La idea era correcta —los dos extremos son nuestro reloj, no hay nada que
-   sincronizar— y la herramienta quedó hecha
-   (`robot-video-pipeline/tests/video-bench/control_to_photon.py`). El problema es el marcador.
-
-   Seis pulsos de `move vyaw=0.5`, base aprendida con el robot quieto, detección a 24-30 sigmas:
-
-   ```
-   onset:  311 / 640 / 971 / 1181 / 1518 / 1855 ms      mediana 1076, desvío 516
-   ```
-
-   **El desvío es del mismo orden que el número buscado.** Y no es el video: los cuadros
-   llegan cada **70.5 ms con desvío 3.8-5.4 ms, cero ráfagas y cero huecos > 200 ms** sobre
-   45 s (`--check-video` lo verifica). Un transporte así de regular no puede dispersar medio
-   segundo.
-
-   Es el robot: su demora entre aceptar el `move` y arrancar visiblemente. Un pulso llegó a
-   **1855 ms, o sea después de que el dead-man ya lo había frenado a los 1500**. Y el
-   movimiento visible dura **6.3 s** tras un comando de 1.5 s (6.30 / 6.30 / 6.30 / 6.29 /
-   6.31 — repetible), porque el robot desacelera y se reacomoda.
-
-   > **Más pasadas no lo arreglan**: una demora mecánica es un sesgo con varianza, no ruido
-   > que se promedie. La mediana de 1076 ms sirve como "lo que el operador siente", y **no**
-   > como latencia de video.
-
-2. **Pantalla que destella, servida por nosotros.** El problema del brillo desaparece si en vez
-   de *leer* la pantalla se *detecta un cambio*: una página a pantalla completa que alterne
-   negro/blanco en instantes exactos. Como la página la servimos nosotros, **puede sincronizar
-   su reloj contra nuestro servidor** — que es justo lo que faltaba. El destello se detecta por
-   brillo promedio, y el brillo es lo que sobra.
-
-3. **RTCP Sender Reports del RTP multicast.** Los SR mapean el timestamp RTP al reloj de pared
-   del emisor, así que darían la latencia captura→llegada sin nada en cuadro. Es lo más limpio,
-   pero hay que confirmar que el publicador del Go2 los emita y resolver contra qué reloj está
-   ese emisor (probablemente el controlador de bajo nivel, no el Jetson).
-
-**Recomendación actualizada: la 2.** La 1 ya se probó y no puede aislar el video (arriba). La
-2 elimina justamente lo que arruinó a la 1: entre el instante que controlamos y los fotones no
-hay mecánica, solo el refresco de una pantalla (~16 ms a 60 Hz), despreciable contra los
-cientos de ms en juego. Sigue sin necesitar sincronizar relojes ajenos si la página la
-servimos nosotros y el disparo sale de acá.
-
-Lo único que hace falta es físico: **una pantalla que la cámara del robot vea**. Puede ser un
-monitor de esta PC, o un celular con una página nuestra que se da vuelta al recibir nuestro
-mensaje.
-
-**Lo que la 1 sí dejó, y vale:**
-
-- El camino de comando por el relay es **~7 ms** de ida y vuelta. Descartado como sospechoso.
-- El transporte de video entrega con una regularidad de **±4-5 ms**. Descartado como fuente
-  de dispersión. *(Ojo: regularidad no es latencia — un buffer fijo da desvío cero y sigue
-  siendo latencia. Esto descarta el jitter, no el retardo.)*
-- `control_to_photon.py`, con su control negativo (manda `keepalive`, verifica 0 detecciones
-  falsas) y `--check-video`. Si alguna vez se quiere el número de "lo que se siente al
-  manejar", está listo.
+**Lo que sí funcionó, y por qué:** los dos extremos del intervalo son **nuestro propio reloj**
+en esta misma máquina. No se lee ningún dígito (el panel se mide por brillo) y no se
+sincroniza ningún reloj ajeno. Cuando la pantalla filmada está en otro dispositivo, esa página
+se disciplina contra nuestro servidor y **le reporta su sincronización**, y la medición se
+niega a dar un número sin eso.
 
 ### Herramientas que quedaron listas y funcionan
 
