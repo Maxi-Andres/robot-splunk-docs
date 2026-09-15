@@ -9,31 +9,42 @@
 
 ## 0. La aclaración que hay que leer antes que nada
 
-**No estamos leyendo el H.264 nativo del robot.** Es fácil creer lo contrario, porque todo lo
-que sale del robot hoy es H.264. Lo que pasa en realidad:
+**La latencia absoluta de este video NUNCA se midió, y el "culpable" que este documento daba
+por sentado resultó ser falso.** Las dos cosas hay que leerlas juntas, porque casi todo lo que
+sigue se escribió antes de saberlas.
 
-```
-cámara → videohub del Go2 (GetImageSample, request/response)  ← ~650 ms, ACÁ ESTÁ EL PROBLEMA
-       → JPEG
-       → nvjpegdec (decodificar en el Jetson)
-       → nvv4l2h264enc (re-encodear a H.264)
-       → mediamtx → Frigate / drive / YOLO
-```
+**Lo que se creía:** que el videohub del Go2 (`GetImageSample`, request/response) metía
+**~650 ms** y era el 90% del problema.
 
-El cambio a H.264 compró **ancho de banda**, no latencia de origen: los ~650 ms ya vienen
-dentro del JPEG que pedimos, así que ningún transporte los toca.
+**Lo que se midió (2026-09-14):**
 
-El H.264 **nativo** es otra cosa, y **ya está resuelto** (§3): el Go2 lo publica por **RTP
-multicast en `230.1.1.1:1720`**, a 720p y 13.9 fps, y leerlo saltea el videohub entero. El
-tópico DDS `rt/frontvideostream` que el plan viejo perseguía **no sirve** — ver §3.1.
+- Ese número salió de comparar un cronómetro en pantalla contra el reloj del robot. El mismo
+  método, repetido, dio **-710 ms** y **-1400 ms**: negativos, o sea imposibles, e
+  inconsistentes entre sí. **El 650 no es un dato, es un artefacto de reloj.**
+- El camino nuevo (H.264 nativo, que **no pasa por el videohub**) y el viejo (videohub +
+  re-encode) tienen **la misma latencia**, por dos métodos independientes. Si saltear el
+  videohub no cambia nada, el videohub no era el problema.
+
+**Conclusión: hay una latencia sin ubicar, aguas arriba de los dos caminos** —cámara, ISP o
+el encoder del propio robot— **y no sabemos cuánto es.** Ningún cambio de fuente ni de
+transporte la tocó hasta ahora.
+
+El H.264 nativo **sí está resuelto** (§3) y compró cosas reales —2.5× menos bits por cuadro,
+3.2× los cuadros, el Jetson sin trabajo de encoder— pero **latencia no**. Se lee por **RTP
+multicast en `230.1.1.1:1720`**; el tópico DDS `rt/frontvideostream` que el plan viejo
+perseguía **no sirve** (§3.1).
 
 ---
 
-## 1. Dónde está la latencia, medida
+## 1. Dónde está la latencia
+
+**Solo las etapas de abajo del videohub están medidas de verdad.** El total absoluto no, y el
+reparto tampoco: sin un glass-to-glass confiable no se sabe qué fracción del total es cada
+fila, ni cuánto queda sin explicar.
 
 | etapa | costo | estado |
 |---|---|---|
-| **cámara → videohub (`GetImageSample`)** | **~650 ms** | **sin tocar — es el 90%** |
+| **el tramo de origen (cámara → primer byte que sale del robot)** | **DESCONOCIDO** | el "~650 ms" era un error de reloj (§0). No pasa por el videohub: saltearlo no cambió nada |
 | `mjpeg_server` (el tee en el robot) | 0.2 ms | medido, no es problema |
 | cadencia a 5 fps | ~200 ms | perilla: subir `NVR_FPS` |
 | presupuesto ARQ de SRT | 150 ms configurados, **1 ms usados** | perilla: bajarlo mucho |
@@ -42,7 +53,11 @@ tópico DDS `rt/frontvideostream` que el plan viejo perseguía **no sirve** — 
 | transporte MJPEG (234 KB/cuadro) | **225-240 ms** | eliminado al pasar a H.264 |
 | transporte H.264 (~37 KB/cuadro) | ~35 ms | el que corre hoy |
 
-> **Todo lo de abajo del videohub junto suma menos de la mitad que el videohub solo.**
+> **Ojo con sumar esta tabla.** Todo lo medido acá junto no llega a 400 ms, y la única
+> medición de punta a punta que existe hoy —control-to-photon, §9— dio una mediana de
+> ~1076 ms **incluyendo la demora mecánica del robot**, que no está separada. La diferencia
+> es justamente el tramo de origen desconocido. **Hasta tener el glass-to-glass (§9 opción 2),
+> optimizar cualquier fila de abajo es apretar perillas sin saber qué fracción tocan.**
 
 ---
 
@@ -122,11 +137,16 @@ udpsrc address=230.1.1.1 port=1720 multicast-iface=eth0
 | robot→HQ | 1.42 Mbps | **2.02 Mbps** |
 | **por cuadro** | 0.30 Mbit | **0.145 Mbit** — la mitad |
 | CPU/GPU del Jetson | decode JPEG + encode H.264 | **nada, es passthrough** |
-| latencia del videohub | **~650 ms** | **no pasa por ahí** |
+| **latencia** | — | **IGUAL. No mejoró** (§3.4) |
 
 **3× los cuadros por 1.4× el ancho de banda**, y el doble de eficiencia por cuadro. El costo es
 720p en vez de 1080p, y que **el bitrate lo decide el encoder de Unitree** — supera por poco el
 objetivo de 2 Mbps y no tenemos perilla para bajarlo salvo cambiar de escalón.
+
+> **La fila de latencia decía "videohub ~650 ms" contra "no pasa por ahí", y estaba mal.**
+> Prometía una ventaja que la medición del §3.4 desmiente: los dos caminos miden igual. Y el
+> 650 nunca fue un dato confiable (§0). **Este cambio se justifica por ancho de banda, cuadros
+> y carga del Jetson — no por latencia.**
 
 ### 3.4 Lo que falta para ponerlo en producción
 
@@ -305,7 +325,20 @@ los plugins y se la mide contra las otras con un comando.
 - **El double free de `nvv4l2h264enc`** sigue sin causa. Descartados con medición: bitrate, CBR,
   la cadena `nvjpegdec` con bytes reales, decode por software, 4:2:0 vs 4:2:2, restart markers,
   el segmento COM y `rtmpsink` contra dos servidores. Mitigado por el supervisor, no arreglado.
-- **Nada se midió sobre LTE ni Starlink.** Todo es cable, o sea el mejor caso.
+- **Nada se midió sobre LTE ni Starlink.** Todo es cable, o sea el mejor caso. ⚠️ **Y con
+  `multicast` ese riesgo creció**, por dos motivos que conviene tener claros antes de salir
+  a campo:
+  - **El multicast NO cruza la red, así que NAT no es problema.** `udpsrc` se suscribe al
+    grupo en `$NIC`, que es el bus interno del robot (`eth0`, 192.168.123.18/24), y lo que
+    sale hacia HQ es el **mismo RTMP unicast sobre TCP de siempre**. Verificado en
+    `run-video.sh`: la única diferencia entre las dos fuentes está antes del muxer.
+  - **Pero se perdió la perilla.** En `multicast` el encoder es el de Unitree, adentro del
+    robot: `BITRATE`, `NVR_FPS`, `MAXFPS` e `IDR_FRAMES` **quedan inertes** (`run-video.sh`
+    los pone en 0 para esta fuente). Y manda **más**: 1.78 Mbps contra 1.43, 14.25 fps contra
+    4.5. Sobre un enlace con pérdida eso va para el lado equivocado — el congelamiento acá es
+    pérdida con retransmisión TCP, y **mandar menos pierde menos**.
+  - **La salida es `SOURCE=jpeg`**, que sigue entera y a una variable de distancia. Si un
+    enlace de campo empieza a congelarse, ese es el movimiento.
 - **El glass-to-glass absoluto del camino H.264 no es medible en remoto** sin el NAL SEI.
 - **Riesgo introducido:** si `NVR_FPS` cambia desde el panel sin reiniciar el servicio, el
   divisor del bitrate queda viejo y el bitrate sale mal por ese factor, sin síntoma visible.
@@ -429,11 +462,30 @@ milisegundos se borronean: la pantalla **satura la cámara** y no se lee nada ú
 
 **Tres alternativas, ninguna necesita leer un dígito ni sincronizar relojes ajenos:**
 
-1. **Control-to-photon — la más práctica, y posiblemente la que más importa.** Mandar un `move`
-   por el relay en el instante T (lo controlamos nosotros) y **detectar automáticamente el
-   inicio del movimiento en el video** en T'. `T' - T` es lo que el operador realmente siente al
-   manejar. No hace falta ninguna pantalla ni reloj externo: los dos extremos son nuestros.
-   Incluye la latencia del comando, que se mide aparte por el relay y se resta.
+1. ~~**Control-to-photon — la más práctica.**~~ **PROBADA 2026-09-14. NO SIRVE para medir el
+   video.** La idea era correcta —los dos extremos son nuestro reloj, no hay nada que
+   sincronizar— y la herramienta quedó hecha
+   (`robot-video-pipeline/tests/video-bench/control_to_photon.py`). El problema es el marcador.
+
+   Seis pulsos de `move vyaw=0.5`, base aprendida con el robot quieto, detección a 24-30 sigmas:
+
+   ```
+   onset:  311 / 640 / 971 / 1181 / 1518 / 1855 ms      mediana 1076, desvío 516
+   ```
+
+   **El desvío es del mismo orden que el número buscado.** Y no es el video: los cuadros
+   llegan cada **70.5 ms con desvío 3.8-5.4 ms, cero ráfagas y cero huecos > 200 ms** sobre
+   45 s (`--check-video` lo verifica). Un transporte así de regular no puede dispersar medio
+   segundo.
+
+   Es el robot: su demora entre aceptar el `move` y arrancar visiblemente. Un pulso llegó a
+   **1855 ms, o sea después de que el dead-man ya lo había frenado a los 1500**. Y el
+   movimiento visible dura **6.3 s** tras un comando de 1.5 s (6.30 / 6.30 / 6.30 / 6.29 /
+   6.31 — repetible), porque el robot desacelera y se reacomoda.
+
+   > **Más pasadas no lo arreglan**: una demora mecánica es un sesgo con varianza, no ruido
+   > que se promedie. La mediana de 1076 ms sirve como "lo que el operador siente", y **no**
+   > como latencia de video.
 
 2. **Pantalla que destella, servida por nosotros.** El problema del brillo desaparece si en vez
    de *leer* la pantalla se *detecta un cambio*: una página a pantalla completa que alterne
@@ -446,8 +498,25 @@ milisegundos se borronean: la pantalla **satura la cámara** y no se lee nada ú
    pero hay que confirmar que el publicador del Go2 los emita y resolver contra qué reloj está
    ese emisor (probablemente el controlador de bajo nivel, no el Jetson).
 
-**Recomendación: empezar por la 1.** Es la que no depende de nada externo y mide el número que
-de verdad decide si se puede manejar.
+**Recomendación actualizada: la 2.** La 1 ya se probó y no puede aislar el video (arriba). La
+2 elimina justamente lo que arruinó a la 1: entre el instante que controlamos y los fotones no
+hay mecánica, solo el refresco de una pantalla (~16 ms a 60 Hz), despreciable contra los
+cientos de ms en juego. Sigue sin necesitar sincronizar relojes ajenos si la página la
+servimos nosotros y el disparo sale de acá.
+
+Lo único que hace falta es físico: **una pantalla que la cámara del robot vea**. Puede ser un
+monitor de esta PC, o un celular con una página nuestra que se da vuelta al recibir nuestro
+mensaje.
+
+**Lo que la 1 sí dejó, y vale:**
+
+- El camino de comando por el relay es **~7 ms** de ida y vuelta. Descartado como sospechoso.
+- El transporte de video entrega con una regularidad de **±4-5 ms**. Descartado como fuente
+  de dispersión. *(Ojo: regularidad no es latencia — un buffer fijo da desvío cero y sigue
+  siendo latencia. Esto descarta el jitter, no el retardo.)*
+- `control_to_photon.py`, con su control negativo (manda `keepalive`, verifica 0 detecciones
+  falsas) y `--check-video`. Si alguna vez se quiere el número de "lo que se siente al
+  manejar", está listo.
 
 ### Herramientas que quedaron listas y funcionan
 

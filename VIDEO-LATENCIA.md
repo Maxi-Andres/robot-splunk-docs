@@ -318,7 +318,7 @@ que falta para decidir entre el plan A y el B.
 | mediamtx+WebRTC podría bufferear como Frigate | **Refutada.** ~127 ms, no segundos. |
 | `whipsink` no está disponible (inferencia) | **Confirmada.** El robot tiene GStreamer **1.16.3**; `whipsink` llegó en 1.22. |
 | El congelamiento lo causa la **pérdida** del enlace | **Confirmada.** 0.016% de bytes retransmitidos en MJPEG contra 0.010% en H.264, con `rto` de 207-224 ms — que reproduce las frenadas de 200-836 ms. Matiz medido: la pérdida crece con lo que mandamos (0.27% sin cap, 0.016% capado). |
-| El videohub es el cuello de botella del congelamiento | **Refutada.** Cadencia de origen regular, **0 frenadas** en 540 s; `mjpeg_server` cuesta 0.2 ms. Sigue siendo cierto que aporta ~650 ms de latencia, que es otra cosa. |
+| El videohub es el cuello de botella del congelamiento | **Refutada.** Cadencia de origen regular, **0 frenadas** en 540 s; `mjpeg_server` cuesta 0.2 ms. ⚠️ **Y la segunda parte de esta fila también cayó (2026-09-14):** decía "sigue siendo cierto que aporta ~650 ms de latencia". No lo es — ese número salió de comparar contra un reloj ajeno (el mismo método dio **-710 ms** y **-1400 ms**, imposibles), y saltear el videohub entero **no cambió la latencia**. Ver `PLAN-VIDEO.md` §0. |
 | La ventaja de H.264 es ~7× | **Es 6.7× POR VISOR.** El robot sirve una copia entera del MJPEG a cada cliente (17.8 Mbps con dos); el H.264 sale una vez a 1.40 Mbps y mediamtx reparte. El plan no hace este argumento y es el más fuerte. |
 | La meta "cero huecos > 200 ms" | **Inalcanzable a 5 fps**: 5 fps *son* 200 ms de cadencia. Hoy `MJPEG_FPS=5` y `NVR_FPS=5`. Si WebRTC va a ser la vista en vivo, `NVR_FPS` tiene que subir, y eso multiplica el bitrate. |
 
@@ -404,6 +404,13 @@ primera vez.
    Subirla es condición previa a que WebRTC reemplace al MJPEG, y hay que re-medir el bitrate
    después de subirla — el divisor del §2.3 depende de ese número.
 
-**El punto B del plan (H.264 nativo del `rt/frontvideostream`) sigue siendo el de mayor
-techo**, y ahora tiene un motivo más: se saltea el `nvjpegdec` y por lo tanto el double free
-del §3.1, además de los ~650 ms del videohub y de la doble copia.
+~~**El punto B del plan (H.264 nativo del `rt/frontvideostream`) sigue siendo el de mayor
+techo**~~ — **desactualizado, 2026-09-14.** Dos correcciones:
+
+- **Por DDS no se puede.** `rt/frontvideostream` falla incluso leído adentro del Jetson: el
+  lector empareja y aun así recibe 0 bytes. El H.264 nativo se obtiene por **RTP multicast en
+  `230.1.1.1:1720`**, y así está corriendo hoy.
+- **No era "de mayor techo" por latencia.** Sí lo era por lo demás, y se cumplió: saltea el
+  `nvjpegdec` (y con él el double free del §3.1), evita la doble copia, y da **3.2× los
+  cuadros por 1.24× el ancho de banda**. Pero **la latencia quedó igual**, medida por dos
+  métodos independientes, y los "~650 ms del videohub" nunca fueron un dato confiable.
