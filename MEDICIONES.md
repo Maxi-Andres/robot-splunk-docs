@@ -10,6 +10,119 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 
 ---
 
+## 2026-09-16 · noche (LTE, escena nueva) — el MJPEG sin cap se comió el enlace
+
+**Enlace: LTE de Telefónica, NO Starlink.** Se creía que había pasado a Starlink; Splunk decía
+"Telefónica" y Splunk tenía razón. Verificado desde el robot:
+
+```
+curl https://ipinfo.io/json   ->   "org": "AS22927 Telefonica de Argentina"
+```
+
+> **Cómo verificar de qué enlace estás colgado**, porque a ojo no se distingue y el RTT no
+> alcanza: `ssh unitree@10.1.254.18 'curl -s https://ipinfo.io/json'`. El ASN lo dice.
+> Starlink sería `AS14593 SPACEX-STARLINK`.
+
+**RTT: 23.6 / 79.2 / 451 ms** (min/prom/max), mdev 82, 0% de pérdida en 60 pings. Mucho más
+jitter que a la tarde (43.6 de promedio).
+
+Config: robot igual que a la tarde (`SOURCE=jpeg`, `PROTO=srt`, `LATENCY=150`,
+`BITRATE=800000`, `NVR_FPS=15`), MJPEG **480x270, calidad 25, SIN CAP** (`MJPEG_FPS=0`).
+
+| | tarde (oficina) | **noche (escena nueva)** |
+|---|---|---|
+| peso del cuadro MJPEG | 6 KB | **17 KB** |
+| MJPEG en el enlace | 0.77 Mbps | **1.73 Mbps** por viewer |
+| **transporte del MJPEG** | **70 ms** p50 | **815 ms** p50 (p95 989, máx 1203) |
+| `mjpeg_server` | 16.8 ms | 17.1 ms |
+| `/drive` | 14.31 fps | 12.54 fps |
+| H.264 llegando a HQ | 13.5-14.2 fps | **7.6 fps** |
+| frenadas del lector / 35 s | 3 | **24** |
+| descartes SRT / ventana | 8 | **42-56** |
+
+**Nada se tocó entre las dos filas.** Lo que cambió es **la escena**: MJPEG no comprime entre
+cuadros, así que el peso lo decide el detalle de lo que mira la cámara. A 12.5 fps, 17 KB por
+cuadro son 1.73 Mbps de MJPEG más 0.7 del H.264 = **2.4 Mbps sobre un enlace que midió 3.12**.
+Al borde, y encolando.
+
+> **`MJPEG_FPS=0` no es una configuración, es una apuesta** a que la escena no se ponga
+> detallada. Andaba en la oficina y se rompe afuera **sin que nadie haya tocado nada**. Si la
+> rama MJPEG es la vista de manejo, el cap es lo que la protege — y se pone en vivo:
+> `POST /config {"fps":N}` al `:8093` del robot, sin reiniciar.
+
+### El mismo enlace y la misma escena, con `fps_cap=10` — y el gate que no entrega lo que dice
+
+Puesto en vivo (`POST /config {"fps":10}` al `:8093`), sin reiniciar nada:
+
+| | sin cap | **cap 10** |
+|---|---|---|
+| **latencia total del MJPEG** | **832 ms** | **109 ms** (14.3 del robot + 95 de transporte) |
+| transporte p95 / máx | 989 / 1203 ms | **135 / 363 ms** |
+| MJPEG en el enlace | 1.73 Mbps | **0.86-0.92 Mbps** |
+| frenadas del lector / 35 s | 24 | **1** |
+| frenadas en la fuente | 17 | **0** |
+| H.264 llegando a HQ | 7.6 fps | **10.9 fps** |
+| cuadros entregados | 12.54 fps | **7.13 fps** ⚠️ |
+
+La latencia volvió a los ~100 ms de la tarde y **el H.264 se recuperó solo** con la banda
+liberada. Pero se pidieron 10 fps y llegan **7.13**, y no es el enlace:
+
+⚠️ **DEFECTO: el gate del `mjpeg_server` sólo puede entregar `fuente/k`.**
+`mjpeg_server.py:663` usa una separación mínima estricta:
+
+```python
+min_gap = (1.0 / FPS) if FPS > 0 else 0.0
+if now - last < min_gap: continue
+last = now
+```
+
+Con la cámara a 14.3 fps (70 ms) y un cap de 10 (100 ms), el cuadro de los 70 ms llega
+"temprano" y se descarta; el siguiente cae a los 140 → **7.15 fps**. Las únicas tasas
+posibles son **14.3, 7.15, 4.77, 3.58…** y **cualquier cap entre 7.2 y 14.2 entrega
+exactamente 7.15**.
+
+Es el mismo defecto que el bridge ya documenta y arregló en su gate (`_ParamSource._due`:
+*"source 14.8 fps, cap 15, delivered 8.3 fps"*); al `mjpeg_server` nunca le llegó. El arreglo
+es llevar un vencimiento que avanza un período por cuadro aceptado, en vez de comparar contra
+el último aceptado — así acepta 2 de cada 3 y entrega los 10 de verdad. Necesita `git pull` y
+restart en el robot.
+
+> ⚠️ **Y hacia atrás:** los números de "cap 5 → llegan 3.85" de la mañana están contaminados
+> por esto. La columna "tope pedido" de esa tabla **no es la tasa entregada**, y parte de la
+> caída que se atribuyó al enlace era el gate.
+
+### Y la tercera prueba, que es la que gana: bajar la RESOLUCIÓN en vez de capear los fps
+
+Mismo enlace, misma escena, `width=320` y **sin cap** (`POST /config {"width":320,"fps":0}`):
+
+| | 480 sin cap | 480 cap 10 | **320 sin cap** |
+|---|---|---|---|
+| `/drive` | 12.54 fps | 7.13 fps | **13.94 fps** (la cámara entera) |
+| **latencia total** | 832 ms | 109 ms | **92 ms** (14.6 + 77) |
+| transporte p95 / máx | 989 / 1203 | 135 / 363 | **102 / 289 ms** |
+| peso del cuadro | 17 kB | 15 kB | **9 kB** |
+| MJPEG en el enlace | 1.73 Mbps | 0.90 Mbps | **0.93 Mbps** |
+| frenadas del lector / 35 s | 24 | 1 | 4 |
+| H.264 llegando a HQ | 7.6 fps | 10.9 fps | 9.2 fps |
+
+**Por el mismo ancho de banda: el doble de cuadros y menos latencia.** 0.93 Mbps contra 0.90,
+pero 13.94 fps en vez de 7.13 y 92 ms en vez de 109.
+
+El mecanismo es directo: **capear tira cuadros enteros; achicar abarata todos los cuadros.** Y
+de 480 a 320 el cuadro cayó de 17 a 9 kB —menos que proporcional a los píxeles— porque lo que
+se va primero es el detalle fino del pedregullo, que era el que más bits comía y el que menos
+sirve para manejar. El cap, además, arrastraba el defecto del gate (pedir 10 entregaba 7.15);
+sin cap ese problema no existe.
+
+> **La regla: con un presupuesto de banda fijo, en una vista para MANEJAR, gastalo en cuadros
+> y no en píxeles.** Bajar resolución es la perilla buena; capear fps es la mala.
+
+**El costo:** el H.264 bajó de 10.9 a 9.2 fps, porque el MJPEG volvió a tasa completa y le
+disputa el enlace. Recuperarlo sería 256 de ancho o calidad 20 — pero es la rama del NVR, así
+que no vale cambiar una vista de manejo de 92 ms por una grabación más fluida.
+
+---
+
 ## 2026-09-16 · tarde (LTE bueno) — la sesión que dio vuelta varias conclusiones
 
 **Enlace:** RTT 22.7–63.8 ms (prom. 43.6), **0% de pérdida** en 15 pings.
@@ -128,6 +241,7 @@ cuadro de 4.2 kB. `dsack_dups` 41, 42 retransmisiones.
 | `iperf3` | capacidad real | satura: el SRT pasa a 23% de retransmisiones mientras dura |
 | `ss -tin` / stats de `srt-live-transmit` | banda y pérdida reales | `delivery_rate` con `app_limited` es un piso, no capacidad |
 | stamp `STAMP=1` + `/health` del `:8093` | latencia absoluta del MJPEG | el H.264 destruye el stamp: solo sirve para la rama MJPEG |
+| `curl https://ipinfo.io/json` **desde el robot** | **de qué enlace estás colgado de verdad** | el RTT NO alcanza para distinguirlos: el 16-09 a la noche se creía Starlink y era `AS22927 Telefonica`. Starlink es `AS14593 SPACEX-STARLINK` |
 
 > ⚠️ **Efecto observador, la trampa que más costó:** `mjpeg_server` manda **una copia completa
 > por viewer**. Medir el MJPEG abriendo una segunda conexión mientras el bridge lee **duplica
