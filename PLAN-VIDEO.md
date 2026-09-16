@@ -836,6 +836,46 @@ en cero y cero descartes en SRT. **Con margen para seguir subiendo.**
 > queda por gastar es **bits por cuadro**, que hoy son 40 kbit para 1080p (`BITRATE=800000`
 > dividido por un `NVR_FPS=20` que no existe). Puesto en 15 —la tasa real— son 53 kbit.
 
+### 6.e Observado sin medir: con el robot QUIETO el H.264 parece no actualizar
+
+Reportado el 2026-09-16 manejando: con el robot en movimiento el H.264 se ve bien; con el
+robot quieto y una persona moviéndose adelante, **parece congelarse**. El MJPEG no.
+
+**Hipótesis, sin confirmar (el robot se apagó antes de poder medirlo):** no es que H.264 no
+actualice lo estático —no mandar bits donde nada cambió es correcto—, es que **la pérdida de
+cuadros sólo se ve donde hay con qué compararla**. Hoy llegan 10.9 fps de los 14.17 emitidos:
+
+* En H.264 un cuadro perdido **no es un cuadro salteado**: los siguientes dependen de él, así
+  que el decoder sostiene la última imagen buena hasta el próximo punto de resincronización
+  — con `IDR_FRAMES=15`, hasta **1 segundo** después.
+* Con la escena entera en movimiento eso se lee como tirón y el ojo lo perdona. Con el fondo
+  idéntico píxel a píxel, **lo único que delata el congelamiento es la persona que se mueve**.
+* En MJPEG cada cuadro es independiente: una pérdida cuesta una imagen (70 ms), no un segundo.
+
+**Cómo confirmarlo:** robot quieto, alguien moviéndose adelante, las dos ventanas abiertas a la
+vez. Si el MJPEG sigue y el H.264 se traba en el mismo instante, confirmado; si se traban los
+dos juntos, es la fuente y la hipótesis es falsa.
+
+**Si se confirma, dos perillas:** `IDR_FRAMES` 15 → 7 (recupera en 0.5 s en vez de 1 s, cuesta
+bitrate) o `LATENCY` 150 → 250 (entran más retransmisiones, cuesta latencia).
+
+### 6.f H.265: evaluado y DESCARTADO por ahora — lo rompen los consumidores, no el robot
+
+Preguntado el 2026-09-16. El Jetson casi seguro tiene `nvv4l2h265enc` y mediamtx transporta
+H265. **Los que no pueden son los dos consumidores en vivo:**
+
+| consumidor | H.265 |
+|---|---|
+| el navegador (`/drive` en H.264 va por **WebRTC**, ver `RobotCameraStage.tsx`) | Safari sí, Chrome sólo con hardware y según plataforma, Firefox no |
+| el bridge (`WhepStreamSource`, **aiortc**) | **imposible**: `getCapabilities('video')` devuelve `['video/H264','video/VP8','video/rtx']` — verificado en el contenedor |
+
+Y lo que se gana es **ancho de banda, que no es la restricción**: el enlace da 3.12 Mbps y se
+usan 1.5. Ahorrar 30-40% sobre una rama de 0.73 Mbps no paga romper las dos vistas en vivo.
+
+> **Revisar el día que se cumplan LAS DOS:** que el enlace sea el cuello de verdad (Starlink
+> en su peor día, o dos robots compartiéndolo) **y** que la vista en vivo ya no dependa de
+> WebRTC. Con una sola de las dos, no.
+
 ## 7. Lo que no se resolvió
 
 - **El double free de `nvv4l2h264enc`** sigue sin causa. Descartados con medición: bitrate, CBR,
@@ -860,6 +900,11 @@ en cero y cero descartes en SRT. **Con margen para seguir subiendo.**
   divisor del bitrate queda viejo y el bitrate sale mal por ese factor, sin síntoma visible.
 
 ---
+
+> 📊 **Todos los números de este documento, con fecha, hora, configuración y estado del
+> enlace, están en `MEDICIONES.md`.** Si vas a comparar contra algo de acá, mirá primero en
+> qué enlace se midió: entre la mañana y la tarde del 2026-09-16 el mismo MJPEG pasó de
+> 1.90 fps a 14.31 fps sin tocar una línea de código.
 
 ## 8. Herramientas
 
