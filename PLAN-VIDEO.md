@@ -415,6 +415,130 @@ Descubierto el 2026-09-15, y es el que arruinó `/drive` durante un día entero.
 **Sin causa raíz.** Queda abierto por qué el mismo mediamtx entrega a RTSP/RTMP 2.3 s más tarde
 que a WebRTC.
 
+### 6.b.2 ✅ RESUELTO 2026-09-16 — el bridge come H.264 por WHEP
+
+No se arregló el lector de RTSP: **se dejó de usar**. `WhepStreamSource` en
+`unitree_ros2/robot_camera_bridge/camera_sources.py` lee el mismo stream de mediamtx por
+**WebRTC/WHEP**, que es el camino que el navegador ya usaba a 200 ms. El lector de RTSP sigue
+ahí, con la advertencia de los 2455 ms escrita en su docstring, para consumidores de tipo
+grabación.
+
+```
+.env:  STREAM_URL=https://127.0.0.1:8889/robot/whep    (era http://10.1.254.18:8093/stream)
+       STREAM_RESOLUTION=720p   STREAM_FPS=30
+```
+
+**Lo que se midió al cambiarlo, mismo robot, mismo enlace LTE:**
+
+| | MJPEG por TCP (antes) | **WHEP** (ahora) |
+|---|---|---|
+| cuadros al bridge (`/drive`, YOLO, VLM) | 4.5 fps | **11.9 fps** |
+| resolución | 320 de ancho | **1280x720** |
+| costo para el robot | 0.170-0.253 Mbps de subida | **cero** |
+| deriva del lector | — | **0.00 s** (pico 0.16) |
+| primer cuadro | — | 0.62 s |
+
+**Y lo que le hizo al H.264, que es la mitad que no se esperaba.** Las dos ramas compartían el
+enlace, y la de MJPEG es la que lo rompía:
+
+| SRT, ventana de 31 s | con el MJPEG compitiendo | sin él |
+|---|---|---|
+| retransmisiones | 29-48% de los paquetes | **7.5%** |
+| descartes irrecuperables | 3 → 39 | **8** |
+| bytes útiles | 84% de los recibidos | **97%** |
+
+Los 0.17 Mbps del MJPEG no eran caros por su tamaño: eran **TCP sobre un enlace con pérdida**,
+y cada retransmisión suya se comía banda que el SRT necesitaba. Por eso el H.264 "empeoraba"
+cuando la escena se ponía movida: el JPEG crece con el detalle, el H.264 es CBR y no puede
+ceder.
+
+**Trampas que costaron tiempo y conviene no repetir:**
+
+1. **El WHEP de mediamtx es HTTPS, no HTTP.** `webrtcEncryption: yes` está en el yml desde
+   siempre; un POST a `http://...:8889` devuelve **400 Bad Request** sin explicar nada. El
+   README de `video-bench` todavía dice `http://` en su ejemplo.
+2. **La perilla de fps del bridge se volvió el límite.** Con `STREAM_FPS=15` reenviaba 7.9 fps
+   de una fuente de 13.5. WebRTC entrega **en ráfagas** y la compuerta exige 0.9 períodos de
+   separación mínima (60 ms a 15 fps), así que descartaba el segundo cuadro de cada ráfaga. En
+   30 fps: 11.9. **La compuerta tiene que quedar arriba de la fuente, no cerca.**
+3. El certificado es autofirmado (`auto.crt`): la verificación TLS queda **prendida** para
+   cualquier host remoto y solo se saltea en loopback, donde no hay red que interceptar.
+   `STREAM_TLS_CA` fija la CA para un mediamtx en otra máquina.
+
+**Falta:** `aiortc` se instala con pip dentro del devcontainer y **se pierde al reconstruir la
+imagen**. `run_camera_bridge.sh` lo verifica y lo instala si falta; lo prolijo es que entre en
+el Dockerfile.
+
+> ⚠️ **Estado al cierre del 2026-09-16: el `.env` quedó VUELTO AL MJPEG a propósito**, para
+> comparar a ojo la latencia contra el `/drive` en H.264 (que va del navegador a mediamtx
+> directo, sin bridge). El código de WHEP está entero y la vuelta es una línea, anotada en el
+> propio `.env`.
+>
+> **La pregunta abierta es la latencia, no los cuadros.** WHEP entrega 2.6× los cuadros, pero
+> el camino pasa por el buffer de recepción de SRT: `msBuf` reporta **92-101 ms** con
+> `LATENCY=150` en los dos extremos. El MJPEG no pasa por ahí. Lo que NO es: el decode, medido
+> en **6.0 ms por cuadro** (YUV→BGR 2.0, resize 1.8, encode JPEG 2.0). Si la diferencia a ojo
+> es de ~100 ms, la perilla es `LATENCY`, no el lector.
+>
+> Y la medición de esa vuelta atrás, mismo enlace, ventanas de 60 y 31 s:
+>
+> | | WHEP (sin MJPEG) | MJPEG de vuelta |
+> |---|---|---|
+> | al bridge (`/drive`, YOLO, VLM) | 11.9 fps, 720p | **4.25 fps**, 320 de ancho |
+> | H.264 llegando a HQ | 13.5-14.2 fps | **11.4 fps** |
+> | MJPEG en el enlace | 0 | **0.365 Mbps** |
+> | retransmisiones SRT | 7.5% | **38.4%** |
+> | descartes SRT / 31 s | 8 | **47** |
+> | bytes útiles SRT | 97% | **81%** |
+>
+> **Los dos caminos no son independientes: mientras el MJPEG corre, el H.264 que se compara
+> contra él está degradado.** Una comparación de latencia a ojo sigue valiendo; una de fps, no.
+
+### 6.b.3 ⚠️ MEDIDO 2026-09-16, y refuta la recomendación de arriba: el MJPEG gana por 260 ms
+
+Con el MJPEG **destapado** (`POST /config {width:480, fps:0}` en vivo al `mjpeg_server`, sin
+reiniciar nada) y **un solo lector** —la misma carga que tiene el operador— los dos caminos,
+medidos en la misma ventana de 45 s:
+
+| | **MJPEG 480x270 sin cap** | H.264 por WHEP |
+|---|---|---|
+| cuadros | **14.31 fps** (la tasa entera de la cámara) | 11.44 fps |
+| **latencia absoluta** | **89 ms** p50 · 127 ms p95 | **~349 ms** |
+| banda | 0.77 Mbps | 0.71 Mbps |
+
+Dos métodos independientes y coincidentes:
+
+* **El stamp del propio robot** (`STAMP=1`, COM del JPEG) da los 89 ms directo, contra el
+  reloj del robot con +11 ms de offset medido estilo SNTP. No depende de ninguna correlación.
+* **Correlación por contenido** entre los dos streams (`path_race.py`, mismo método que
+  `correlate.py`): pico en **+260 ms a favor del MJPEG**, **3.7 sigmas, r=1.00**. De ahí sale
+  el 349 ms del H.264, que es 89 + 260.
+
+**De dónde salen esos 260 ms**, y ninguno es el lector: el buffer de recepción de SRT retiene
+**105 ms** (`msBuf`, con `LATENCY=150` en los dos extremos), más el encode en el Jetson, más
+mediamtx, más el jitter buffer de WebRTC y el decode. El decode del bridge son **6.0 ms**
+medidos; no es ahí.
+
+**Por qué esto no contradice al §6.d, y es la parte que importa:** el §6.d se midió con el
+enlace a **RTT 165-384 ms y ~0.93 Mbps**, y ahí el MJPEG sobre TCP colapsaba a 1.90-4.5 fps.
+Hoy el enlace está a **RTT ~45 ms y mueve 1.48 Mbps entre las dos ramas**. **La conclusión
+"TCP es el transporte equivocado" vale para un enlace con pérdida, no para cualquier enlace.**
+
+> **La regla que queda, entonces, es condicional y hay que medir el enlace antes de elegir:**
+> con el enlace sano, el MJPEG es el camino corto y gana por 260 ms; con el enlace con
+> pérdida, el MJPEG se cae solo y WHEP es el único que sigue entregando. Las dos
+> configuraciones están a **una línea** del `.env` del bridge.
+
+**Lo que NO se puede hacer es dejar las dos ramas a full a la vez.** Con el MJPEG destapado,
+el SRT pierde **433 paquetes irrecuperables cada 31 s (21.7%)** contra 8 sin él: la vista de
+H.264 se ve rota justo mientras se la compara. Si el operador maneja por MJPEG, la rama H.264
+hay que **bajarla** (es la del NVR, ahí la latencia no importa), no dejarla peleando.
+
+**Efecto observador, para no volver a caer:** `mjpeg_server` sirve **una copia completa por
+viewer**. Medir el MJPEG abriendo una segunda conexión mientras el bridge lee duplica la
+subida y atrasa lo que se está midiendo — pasó en la primera corrida (latencia 618-711 ms y el
+MJPEG "perdiendo" por 110 ms) y se arregló pasando el bridge a `robot=test` durante la prueba.
+
 ### 6.c El reescalado del MJPEG costaba 105 ms · **ARREGLADO 2026-09-16, era la cuota de CPU**
 
 Servir el MJPEG a 1080p tal como llega de la cámara cuesta **13.79 Mbps**, que no pasa por un
@@ -682,10 +806,14 @@ más `robot: source: udp+mpegts://127.0.0.1:9000` en el `mediamtx.yml` de HQ.
 Rinde: **H.264 1080p a 11 fps**, `/drive` MJPEG a 4.5, total del robot **0.74 Mbps**, colas TCP
 en cero y cero descartes en SRT. **Con margen para seguir subiendo.**
 
-> **Lo que queda mal: el MJPEG sigue por TCP**, y por eso quedó en 4.5 fps mientras el H.264
-> llega a 11. Si la vista de manejo va a ser H.264 no molesta; pero **YOLO y el VLM comen del
-> bridge**, que lee ese MJPEG. Sacarlos de TCP es el §6.b — que el bridge consuma H.264 por
-> WHEP en vez de MJPEG por HTTP.
+> ~~**Lo que queda mal: el MJPEG sigue por TCP**~~ — **hecho el mismo día, ver §6.b.2.** El
+> bridge pasó a WHEP: `/drive`, YOLO y el VLM subieron de 4.5 a 11.9 fps y a 720p, el robot
+> dejó de mandar la segunda copia, y el SRT bajó de 29-48% de retransmisiones a 7.5%.
+>
+> Con el MJPEG afuera, **el techo de cuadros pasó a ser la cámara**: el videohub entrega 14.3
+> fps y el H.264 llega a HQ a **14.2**. Subir `NVR_FPS` por encima de eso no hace nada; lo que
+> queda por gastar es **bits por cuadro**, que hoy son 40 kbit para 1080p (`BITRATE=800000`
+> dividido por un `NVR_FPS=20` que no existe). Puesto en 15 —la tasa real— son 53 kbit.
 
 ## 7. Lo que no se resolvió
 
