@@ -876,6 +876,77 @@ usan 1.5. Ahorrar 30-40% sobre una rama de 0.73 Mbps no paga romper las dos vist
 > en su peor día, o dos robots compartiéndolo) **y** que la vista en vivo ya no dependa de
 > WebRTC. Con una sola de las dos, no.
 
+### 6.g ⏳ LOS DOS EXPERIMENTOS QUE FALTAN — cómo quedarse con H.264 sin pagar su latencia
+
+**El problema, en una tabla.** Medido el 2026-09-16, mismo enlace, misma escena, al mismo
+tiempo:
+
+| | resolución | banda | latencia |
+|---|---|---|---|
+| H.264 | **1920x1080** | **0.67 Mbps** | ~349 ms |
+| MJPEG | 320x180 | 0.93 Mbps | **92 ms** |
+
+**36 veces más píxeles por el 72% del ancho de banda.** MJPEG comprime cada cuadro como si
+fuera el primero, así que un fondo texturado lo paga entero 14 veces por segundo; H.264 lo
+paga una vez por keyframe. Por eso el peso del cuadro MJPEG se triplicó (6 → 17 kB) sólo por
+cambiar de escena, sin tocar un solo parámetro.
+
+**Lo único que nos mantiene en MJPEG son 260 ms.** Estos dos experimentos atacan eso, y
+ninguno está probado.
+
+#### A. Bajar `LATENCY` de SRT — 105-120 ms de los 260, y los pusimos nosotros
+
+`msBuf` mide **105-120 ms** retenidos en el buffer de recepción, que es exactamente el
+presupuesto de recuperación que le dimos (`LATENCY=150`, en los dos extremos). Se eligió con
+el enlace en su peor día (RTT 165-384 ms). **Hoy el enlace da 0% de pérdida y RTT de 23-80 ms**,
+así que ese presupuesto está sobredimensionado.
+
+La regla de SRT es `latency >= 2.5 x RTT`. Con RTT 45-80 ms eso da **115-200 ms**, no 150 fijo
+— y sobre un enlace sin pérdida se puede bajar más, porque no hay nada que retransmitir.
+
+```
+robot:  LATENCY=80  en video.env         + restart
+HQ:     latency=80  en ~/.config/systemd/user/srt-bridge.service
+        systemctl --user daemon-reload && systemctl --user restart srt-bridge
+```
+
+**Qué medir:** `msBuf` tiene que bajar a ~60-70 ms, y los descartes irrecuperables **no**
+tienen que subir. Si suben, el enlace necesitaba ese presupuesto y se vuelve atrás. El número
+a comparar es el de §6.b.3: H.264 a ~349 ms.
+
+> ⚠️ **Los dos extremos o ninguno**: SRT negocia el MAYOR de los dos valores, así que bajarlo
+> de un solo lado no hace nada.
+
+#### B. H.264 todo-intra (`iframeinterval=1`) — el punto medio que nunca se probó
+
+Cada cuadro un keyframe: **independiente, como MJPEG**. Se acaban las dos cosas que hacen al
+H.264 frágil acá — la dependencia entre cuadros (y con ella el congelamiento hasta el próximo
+IDR de §6.e) y el arranque lento de un viewer nuevo. Pero conserva lo que MJPEG no tiene: la
+**compresión intra de H.264, bastante mejor que JPEG**, y el encoder por hardware del Jetson.
+
+```
+IDR_FRAMES=1 en video.env   (es el que fija idrinterval e iframeinterval)
+```
+
+**Qué medir, y es lo único que decide:** los bits por cuadro contra el MJPEG **a la misma
+resolución y calidad percibida**. Si un cuadro todo-intra pesa menos que el JPEG equivalente,
+gana — misma independencia, menos banda, y con más píxeles.
+
+**Lo que se pierde:** muchísima eficiencia contra el H.264 normal (sin predicción entre
+cuadros, el bitrate sube varias veces). Esto no reemplaza la rama del NVR; sería una **tercera**
+configuración, para la vista de manejo.
+
+**Lo que hay que verificar antes:** que el camino de visualización siga siendo WebRTC, que trae
+su propio jitter buffer — el todo-intra ataca el congelamiento, no ese buffer. Los dos
+experimentos son complementarios: A baja el buffer, B saca la dependencia entre cuadros.
+
+#### Y lo que ya está descartado, para no volver
+
+**WebP / AVIF / JPEG XL**: comprimen mejor que JPEG (25-35% WebP), pero el Jetson acelera por
+hardware **sólo JPEG** (NVJPG) — irían por CPU, en la máquina donde ya medimos lo que cuesta
+la CPU (§6.c, los 77 ms de cgroup congelado). **Verificar con `gst-inspect-1.0 | grep -i webp`
+antes de descartarlo del todo**, pero la expectativa es que no haya encoder acelerado.
+
 ## 7. Lo que no se resolvió
 
 - **El double free de `nvv4l2h264enc`** sigue sin causa. Descartados con medición: bitrate, CBR,
