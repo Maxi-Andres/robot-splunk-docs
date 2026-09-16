@@ -651,6 +651,27 @@ nada escondido — es todo trabajo, y el trabajo es hardware.
 Primera sesión del proyecto sobre LTE (2026-09-16). Enlace: RTT **165-384 ms**, capacidad
 observada ~**0.93 Mbps**.
 
+> ⚠️ **Ese 0.93 NO es la capacidad del enlace, y el mismo día quedó demostrado.** Era lo
+> *observado* en ese momento — nunca se saturó nada para medirlo. Horas después, con
+> `iperf3` entre el robot y HQ y el video corriendo encima:
+>
+> ```
+> iperf3          1.67 Mbps   (recibidos; 1.95 enviados, 107 retransmisiones)
+> MJPEG           0.76 Mbps   (no se movió durante la prueba)
+> H.264 por SRT   0.69 Mbps
+>                 ─────────
+> TOTAL           3.12 Mbps   subida sostenida, y es un PISO
+> ```
+>
+> Y el RTT bajó de 165-384 ms a **22.7-63.8 ms (promedio 43.6, 0% de pérdida en 15 pings)**.
+> Todo lo que sigue en esta sección se midió con el enlace en su peor día; con el enlace sano
+> las conclusiones cambian —ver §6.b.3—, **así que el estado del enlace es una variable del
+> experimento y va anotado al lado de cada resultado, no como propiedad del sistema**.
+>
+> El costo de saturar, medido en la misma prueba: el SRT pasó de 7.5% a **23% de paquetes
+> retransmitidos** y de 8 a **41 descartes**, mientras el MJPEG (TCP) mantuvo su tasa intacta.
+> Comando: `iperf3 -s -1 -p 5201` acá y `iperf3 -c 192.168.20.99 -p 5201 -t 10` en el robot.
+
 ### El hallazgo central: mandar más entrega menos
 
 Curva medida del MJPEG, variando solo el tope de cuadros:
