@@ -522,6 +522,171 @@ nada escondido — es todo trabajo, y el trabajo es hardware.
 > `a, b = body.split()` y un tercer número los rompe **en silencio** — los cuadros pasarían a
 > contar como "unstamped". Toda métrica nueva va a `/health`.
 
+## 6.d LTE, medido por primera vez · **el transporte es el problema, no las perillas**
+
+Primera sesión del proyecto sobre LTE (2026-09-16). Enlace: RTT **165-384 ms**, capacidad
+observada ~**0.93 Mbps**.
+
+### El hallazgo central: mandar más entrega menos
+
+Curva medida del MJPEG, variando solo el tope de cuadros:
+
+```
+cap  3 fps  ->  llegan 2.45      cap  8 fps  ->  llegan 3.35
+cap  4 fps  ->  llegan 2.70      cap 15 fps  ->  llegan 1.90
+cap  5 fps  ->  llegan 3.85  ← optimo
+```
+
+**Y no es ancho de banda.** A 320x180 y calidad 25 el cuadro pesa **4.2 KB**, así que 3.85 fps
+son 0.09 Mbps de un enlace que mueve 0.93. Lo que limita es la **pérdida**: `dsack_dups` 41,
+42 retransmisiones.
+
+**El mecanismo, que es lo que hay que entender:** el MJPEG va por **una sola conexión TCP**.
+Cada pérdida cuesta un viaje de ida y vuelta para retransmitir (~200-380 ms acá), **bloquea
+todo lo que venía detrás** (TCP entrega en orden), y encima TCP corta a la mitad su ventana.
+Mientras el cliente no lee, el `mjpeg_server` saltea cuadros por diseño. Más cuadros = más
+paquetes = más pérdidas = más frenadas.
+
+### La trampa que no tiene salida por configuración
+
+Bajar los fps reduce la pérdida **pero agrega hueco entre cuadros**: a 4 fps cada cuadro está
+250 ms del siguiente, así que aunque el transporte fuera instantáneo el operador ve los cambios
+con un cuarto de segundo de atraso. **Se cambia una latencia por otra.** No hay valor de
+`MJPEG_FPS` que resuelva las dos.
+
+> **La conclusión: sobre un enlace con pérdida, MJPEG sobre TCP es estructuralmente el
+> transporte equivocado.** No es cuestión de sintonizarlo mejor. Hace falta uno que **descarte
+> y siga** en vez de retransmitir y bloquear.
+
+### El camino SRT ya está construido y nunca se enchufó
+
+Es exactamente el transporte que falta: UDP con ARQ acotado a un presupuesto (`LATENCY=150`),
+o sea que recupera lo que entra en 150 ms y **descarta el resto en vez de frenar todo**.
+
+Lo que ya existe, verificado el 2026-09-16:
+
+| pieza | estado |
+|---|---|
+| `srtsink` en el robot | ✅ presente (libsrt 1.4.0) |
+| `PROTO=srt` en `run-video.sh` | ✅ apunta al 8891 por default |
+| `srt-bridge` en HQ (`srt-live-transmit`) | ✅ **corriendo hace 2 días**, escucha `srt://:8891?latency=150` y reenvía a `udp://127.0.0.1:9000` |
+| el path que ingiere ese UDP | ❌ **SOLO está en el `mediamtx.yml` de PRUEBA** |
+
+La línea que falta en producción, ya verificada contra la doc de mediamtx v1.19.2:
+
+```yaml
+  robot:
+    source: udp+mpegts://127.0.0.1:9000     # en vez de `source: publisher`
+```
+
+El puente existe porque **mediamtx rechaza el handshake de libsrt 1.4.0** del robot;
+`srt-live-transmit` sí lo acepta y convierte. Por eso hay tres saltos en vez de uno.
+
+### ✅ PROBADO EL 2026-09-16 SOBRE LTE — funciona, y triplica los cuadros
+
+```
+robot (srtsink, libsrt 1.4.0) → LTE → srt-bridge :8891 → udp:9000 → mediamtx → app
+```
+
+| | RTMP/TCP | **SRT** |
+|---|---|---|
+| H.264 | 3.71 fps | **11.00 fps** (3×) |
+| `/drive` (MJPEG, sigue por TCP) | 4.00 fps | **4.50 fps** |
+| Frigate `skipped_fps` | 2.0 | 0.0-1.1 |
+| tráfico total del robot | 0.71 Mbps | **0.74 Mbps** |
+| colas TCP en el robot | crecían sin parar | **0** |
+
+**Triple de cuadros por el mismo ancho de banda.** La banda que antes se gastaba en
+retransmisiones bloqueantes ahora lleva video.
+
+**Y la curva se dio vuelta**, que es la confirmación de que el diagnóstico era correcto:
+
+| tope pedido | entrega con TCP | entrega con SRT |
+|---|---|---|
+| 5 fps | 3.85 | 4.56 |
+| 10 fps | — | 7.00 |
+| 15 fps | **1.90** | **11.00** |
+
+Con TCP, pedir más entregaba menos. Con SRT, pedir más entrega más. **Mismo enlace, mismo
+robot, misma hora.**
+
+Las estadísticas del puente muestran el mecanismo:
+
+```json
+"recv": {"packets":2707, "packetsLost":15, "packetsRetransmitted":21, "packetsDropped":6}
+```
+
+Recupera lo que entra en los 150 ms de presupuesto (21) y **descarta lo que no** (6), en vez
+de frenar el stream entero. 0.22% perdido de verdad.
+
+### Lo que hubo que destrabar, para no perder tiempo la próxima
+
+1. **La línea faltante en `mediamtx.yml` de producción.** Estaba escrita y verificada en el
+   yml de PRUEBA desde hacía días, y nunca se copió:
+   ```yaml
+   robot:
+     source: udp+mpegts://127.0.0.1:9000     # en vez de `source: publisher`
+   ```
+   Un path de mediamtx **no puede ser publisher y pull a la vez**: el robot en `PROTO=srt` y
+   este `source` van juntos, o el robot en `PROTO=rtmp` y `source: publisher`. Mezclarlos da
+   `can't publish to path 'robot' since 'source' is not 'publisher'`.
+
+2. **La instancia de PRUEBA de mediamtx tenía tomado el udp:9000.** Corría desde sesiones
+   anteriores con su propio path `srtin` leyendo el mismo puerto, y producción fallaba con
+   `bind: address already in use` — un error que no dice nada sobre quién lo tiene. Se bajó.
+   Si se vuelve a levantar `mediamtx tests/video-bench/mediamtx-test.yml`, **va a robar el
+   puerto otra vez** mientras SRT esté en producción.
+
+### ⚠️ Sin explicar: B-frames al arrancar
+
+Dos veces, **al reiniciar el servicio de video**, mediamtx cerró las sesiones WebRTC con
+`WebRTC doesn't support H264 streams with B-frames`. Las dos veces **se resolvió solo a los
+~30 segundos** y las sesiones siguientes conectaron bien.
+
+Lo que hace que no cierre: `nvv4l2h264enc` tiene `num-B-Frames` **con default 0** y perfil
+**Baseline**, que ni siquiera permite B-frames. Verificado con `gst-inspect`.
+
+Primera hipótesis (el reescalado a 640x360) **descartada**: volvió a pasar cambiando solo fps
+y bitrate. Sospecha actual: mediamtx los detecta mal mientras el stream arranca. **No probado.**
+
+> **Si la vista en vivo se congela justo después de reiniciar el video, esperá 30 segundos
+> antes de tocar nada.** Y si se quiere blindar, setear `num-B-Frames=0` explícito en
+> `run-video.sh` en vez de confiar en el default.
+
+### Defecto encontrado en el camino: B-frames rompen WebRTC
+
+Ajustando el H.264 para LTE (640x360, 10 fps, keyframe cada 1 s, 400 kbps) **la vista en vivo
+se congeló**. La causa no era el enlace:
+
+```
+[WebRTC] session closed: WebRTC doesn't support H264 streams with B-frames
+```
+
+Alguno de esos cambios hizo que `nvv4l2h264enc` emitiera B-frames, y mediamtx cierra la sesión
+WebRTC al detectarlos. **Cuál de los cuatro fue, no está determinado** — el sospechoso es el
+reescalado, por ser el único que toca la cadena antes del encoder.
+
+> ⚠️ **Restricción que no estaba escrita en ningún lado:** cualquier cambio en el encoder tiene
+> que mantener B-frames apagados o la vista en vivo deja de existir. `nvv4l2h264enc` tiene la
+> propiedad para forzarlo y **debería estar seteada explícitamente en `run-video.sh`**, en vez
+> de depender de un default que evidentemente cambia según otros parámetros.
+
+### Configuración con la que quedó (LTE, 2026-09-16)
+
+```
+SOURCE=jpeg   PROTO=srt   LATENCY=150   BITRATE=600000   NVR_FPS=15   IDR_FRAMES=15
+MJPEG_WIDTH=320   MJPEG_QUALITY=25   MJPEG_FPS=5
+```
+más `robot: source: udp+mpegts://127.0.0.1:9000` en el `mediamtx.yml` de HQ.
+
+Rinde: **H.264 1080p a 11 fps**, `/drive` MJPEG a 4.5, total del robot **0.74 Mbps**, colas TCP
+en cero y cero descartes en SRT. **Con margen para seguir subiendo.**
+
+> **Lo que queda mal: el MJPEG sigue por TCP**, y por eso quedó en 4.5 fps mientras el H.264
+> llega a 11. Si la vista de manejo va a ser H.264 no molesta; pero **YOLO y el VLM comen del
+> bridge**, que lee ese MJPEG. Sacarlos de TCP es el §6.b — que el bridge consuma H.264 por
+> WHEP en vez de MJPEG por HTTP.
+
 ## 7. Lo que no se resolvió
 
 - **El double free de `nvv4l2h264enc`** sigue sin causa. Descartados con medición: bitrate, CBR,
