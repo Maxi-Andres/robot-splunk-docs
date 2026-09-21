@@ -1005,7 +1005,34 @@ bytes por +280 ms de latencia **es un mal negocio para manejar**.
 > en el navegador con **WebCodecs (`VideoDecoder`)**, sin jitter buffer ni WebRTC. Eso daría el
 > transporte del MJPEG con la mitad de los bytes. Es el próximo experimento.
 
-#### C. IDEA DEL OPERADOR (2026-09-21): dos H.264, uno por rama, en vez de H.264 + MJPEG
+#### C. IDEA DEL OPERADOR (2026-09-21): dos H.264, uno por rama · **HECHA A MEDIAS**
+
+> ⚠️ **Lo construido el 2026-09-21 cubre la CODIFICACIÓN, no el TRANSPORTE.** La rama de
+> manejo existe, es todo-intra y pesa la mitad — pero viaja por **TCP de punta a punta**
+> (HTTP multipart del robot → WebSocket al backend → WebSocket al navegador). No hay RTP ni
+> SRT en ese camino.
+>
+> | de la idea | estado |
+> |---|---|
+> | dos codificaciones, una por consumidor | ✅ |
+> | la de manejo en baja resolución | ✅ 480x270 |
+> | todo-intra, cada cuadro independiente | ✅ |
+> | NVR con buffers, sin tocar | ✅ |
+> | **transporte pelado, sin retransmisión** | ❌ **falta** |
+>
+> **Por qué importa aunque hoy no se note:** con 0% de pérdida TCP no cobra nada, y por eso
+> mide 38 ms. Sobre un enlace con pérdida le va a hacer a esta rama **exactamente lo que le
+> hizo al MJPEG** (§6.d): retransmitir, bloquear lo de atrás, 815 ms. La independencia entre
+> cuadros —lo que hace resistente al MJPEG— **no sirve si el transporte no puede descartar**.
+>
+> **Lo que la completa, y el trabajo difícil ya está hecho:** un **canal de datos de WebRTC en
+> modo no confiable** (`maxRetransmits: 0`, `ordered: false`). Es un canal de DATOS, no un
+> track de video, así que **no arrastra jitter buffer** — los bytes llegan y WebCodecs los
+> decodifica igual que ahora, y una pérdida cuesta un cuadro. Y es nativo del navegador: sin
+> stack de RTP que escribir. Alternativas equivalentes con más plomería: UDP/RTP crudo, o
+> WebTransport con datagramas.
+
+
 
 El planteo, y resuelve la tensión que venimos arrastrando: **hoy una sola codificación tiene
 que servir a dos consumidores con necesidades opuestas.** El NVR quiere resolución y no le

@@ -31,6 +31,44 @@ medidos en lockstep: cierra). El decode en el navegador agrega **0.7 ms**.
 > perceptible, y con 38% menos banda — que es justo el seguro que hace falta cuando se vuelve a
 > un enlace con pérdida, donde el MJPEG se fue a 815 ms sólo porque la escena se puso texturada.
 
+### El QP es un dial entre dos cosas distintas, y las dos cuestan lo mismo en latencia
+
+| | MJPEG | intra **QP40** | intra **QP36** |
+|---|---|---|---|
+| latencia captura → HQ | 24 ms | **38 ms** | **38 ms** (p95 40, máx 79) |
+| cuadros | 10 fps | 14.3 | **14.3** |
+| banda | 0.710 Mbps | **0.42** | 0.61-0.69 |
+
+* **QP40 = la misma imagen que el JPEG por la mitad de los bytes.**
+* **QP36 = la misma banda que el JPEG, con 43% más cuadros y bastante mejor imagen.**
+
+Cuál conviene lo decide el enlace del día. Hoy sobra: **capacidad medida con iperf3 = 41.5 Mbps
+de subida, cero retransmisiones**, así que 2 Mbps entre las tres ramas no lo rozan.
+
+> ⚠️ **La banda a QP fijo SIGUE A LA ESCENA** (0.61 → 0.69 Mbps entre corridas sin tocar nada),
+> igual que el JPEG. Es lo correcto —calidad constante, tamaño variable— pero significa que el
+> presupuesto hay que pensarlo sobre la escena peor, no sobre la de la oficina.
+
+### ⚠️ Defecto encontrado y arreglado: una cola que se formaba y NO se iba
+
+Al cambiar el QP en vivo la latencia saltó a **288 ms p50, p95 1033, máx 2680** — y **siguió
+ahí los 40 segundos enteros de la medición**, entregando con una cadencia perfecta de 72 ms
+todo el tiempo.
+
+**No era el QP** (medido dos veces seguidas después, a QP36: 37 y 38 ms). Era el transitorio:
+cambiar el QP **reconstruye el hijo gst**, y la ráfaga del preroll dejó al relay cuatro cuadros
+atrás — 288 ms a 72 ms por cuadro, la cuenta cierra.
+
+**Lo grave no fue la ráfaga, fue que no se drenara nunca.** El relay leía un cuadro por pasada
+y lo reenviaba: con la fuente produciendo a 14 fps y el consumidor consumiendo a 14 fps,
+cualquier hueco que se abra se arrastra para siempre. Arreglado: ahora **vacía el socket y se
+queda sólo con el último**, la misma disciplina que `Latest` en el robot y `_put_latest` en el
+backend.
+
+> **Y la lección de medición:** una **cadencia estable no prueba frescura**. Los 72 ms se veían
+> perfectos mientras la imagen tenía 288 ms de atraso. Lo que distingue es la marca de captura,
+> no el ritmo de llegada.
+
 **Defecto encontrado al integrarlo, y estaba documentado en el propio repo:** el relay sólo
 EMPUJA, pero uvicorn manda pings de keepalive y `websocket-client` contesta PONG **únicamente
 mientras algo está bloqueado en `recv()`**. Sin un hilo que drene el socket, el servidor cierra
