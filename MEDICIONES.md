@@ -10,6 +10,43 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 
 ---
 
+## 2026-09-21 — la rama de manejo en H.264 todo-intra, corriendo en el robot
+
+Primera medición de la rama nueva (`/h264` en el `mjpeg_server`, `POST /config {"h264":1}`),
+con las otras dos ramas funcionando al mismo tiempo. Enlace fijo, MJPEG en 480x270 cap 10.
+
+| rama | cuadros | banda |
+|---|---|---|
+| MJPEG (`/drive` hoy) | 9.99 fps | 0.710 Mbps |
+| H.264 del NVR (SRT) | 13.2 fps | 0.767 Mbps · 0 descartes |
+| **H.264 todo-intra (`/h264`)** | **14.48 fps** | **0.487 Mbps** · 4207 B/cuadro |
+
+**La rama nueva entrega 45% MÁS cuadros por 34% MENOS banda que el MJPEG que reemplazaría**
+(14.48 fps a 0.487 Mbps contra 10 fps a 0.710). El peso por cuadro —4207 B— cae clavado sobre
+la predicción offline de 4151.
+
+**Qué le cuesta al robot el tercer encode**, que era la duda que frenaba el resto:
+
+| | antes | con la rama nueva |
+|---|---|---|
+| `work_ms_p50` (resize JPEG) | 12.2 ms | **16.9 ms** |
+| `nvr_dropped` | 55 | **55 — sin descartes nuevos** |
+| MJPEG entregado | 10 fps | **10 fps** |
+| H.264 del NVR | 13.7 fps | 13.2 fps |
+
+**+4.7 ms sobre el resize y nada más.** El NVR no perdió un cuadro. Con la cámara a 70 ms de
+período hay margen de sobra para las tres.
+
+Y la instrumentación funciona: **`X-Capture` presente en 175/175 cuadros**, con una edad al
+salir del robot de **31 ms** (medido por loopback, así que es captura → disponible en el HTTP
+del robot; el equivalente del MJPEG son los ~13 ms del resize).
+
+> **Lo que esto NO mide todavía:** la latencia punta a punta hasta el navegador. Falta el relay
+> y el canvas con `VideoDecoder` (PLAN-VIDEO.md §6.g D). Pero el riesgo que frenaba todo —que
+> el tercer encode ahogara al robot— queda descartado.
+
+---
+
 ## 2026-09-21 — enlace FIJO (no LTE), y el H.264 perdía cuadros DENTRO del robot
 
 **Enlace: `AS16814 NSS S.A.`, fijo.** No es LTE ni Starlink — verificado con
