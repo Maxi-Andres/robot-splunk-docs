@@ -10,6 +10,61 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 
 ---
 
+## 2026-09-21 — enlace FIJO (no LTE), y el H.264 perdía cuadros DENTRO del robot
+
+**Enlace: `AS16814 NSS S.A.`, fijo.** No es LTE ni Starlink — verificado con
+`ssh unitree@10.1.254.18 'curl -s https://ipinfo.io/json'`.
+**RTT 3.4 / 7.1 / 11.7 ms**, 0% de pérdida. Diez veces mejor que el mejor LTE que medimos.
+
+Config: MJPEG 480x270 `quality=25` `fps_cap=10`; robot con `NVR_FPS=15`, `BITRATE=800000`,
+`LATENCY=150`. El robot **todavía sin** el arreglo del gate (`git log` en `121f1d2`).
+
+### El presupuesto, que era la pregunta
+
+| rama | peso | cuadros | latencia |
+|---|---|---|---|
+| **MJPEG** (`/drive`) | **0.552 Mbps** · 9 kB/cuadro | 7.12 fps | **23 ms** (13.1 robot + 10 transporte) |
+| **H.264** (NVR) | **0.513 Mbps** | 8.7 fps | buffer SRT 129 ms |
+| **TOTAL** | **1.07 Mbps = 482 MB/hora** | | |
+
+Cero frenadas en la fuente y cero en el lector; cero descartes de SRT. **23 ms de latencia en
+la vista de manejo**, contra 89 ms del mejor LTE y 832 ms cuando se saturó.
+
+> El techo de **3.12 Mbps era de LTE y no aplica acá**. Con RTT de 7 ms este enlace es de otra
+> clase; su capacidad **no está medida** todavía.
+
+### ⚠️ Y el hallazgo: el H.264 perdía 40% de los cuadros dentro del robot
+
+La contradicción que lo delató: la cámara entrega **14.3 fps**, el robot **no descarta**
+(`nvr_dropped` clavado en 148), SRT reporta **0 descartes**… y llegan **8.7 fps**.
+
+`nvr_offer()` tenía una **segunda copia** de la compuerta defectuosa —la misma que se arregló
+el 16-09 en la rama del viewer, que se pasó por alto acá:
+
+```python
+if now - _nvr_last < 1.0 / NVR_FPS: return
+_nvr_last = now
+```
+
+Con `NVR_FPS=15` el hueco mínimo es **66.7 ms** contra una cámara que entrega cada **70 ms**:
+tan al borde que el temblor normal de cadencia empuja cuadros por debajo del umbral, y cada
+uno se lleva puesto al siguiente. De ahí el 8.7, que es una mezcla de 14.3 y 7.15.
+
+**Y lo causamos nosotros el 16-09.** Con `NVR_FPS=20` el hueco era de 50 ms, holgado contra
+los 70, y el H.264 llegaba a **14.2 fps**; lo bajamos a 15 para corregir el divisor del
+bitrate y pusimos la compuerta justo en el borde. **Todas las caídas del H.264 que se
+atribuyeron al enlace desde entonces —10.9, 9.2, 8.7— empiezan ahí.**
+
+> **El defecto de diseño detrás:** `NVR_FPS` hace **dos trabajos con óptimos opuestos** — es
+> el tope de la compuerta (quiere estar holgadamente POR ENCIMA de la tasa de la cámara) y el
+> divisor que pre-calcula el bitrate por cuadro (quiere SER la tasa de la cámara). El gate por
+> vencimiento elimina el conflicto: un tope de 15 sobre una fuente de 14.3 ahora pasa todo, así
+> que el divisor puede ser honesto.
+
+Arreglado con el mismo `RateGate`, + 2 tests. **Requiere `git pull` y restart en el robot.**
+
+---
+
 ## 2026-09-16 · noche (LTE, escena nueva) — el MJPEG sin cap se comió el enlace
 
 **Enlace: LTE de Telefónica, NO Starlink.** Se creía que había pasado a Starlink; Splunk decía

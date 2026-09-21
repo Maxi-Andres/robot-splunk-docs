@@ -894,6 +894,16 @@ cambiar de escena, sin tocar un solo parámetro.
 **Lo único que nos mantiene en MJPEG son 260 ms.** Estos dos experimentos atacan eso, y
 ninguno está probado.
 
+#### Cuánto cuesta cada experimento, en datos de LTE
+
+Consumo actual, medido: **MJPEG 0.93 Mbps (419 MB/hora) + H.264 0.67 (302 MB/hora) = 720 MB
+por hora de manejo.** Contra eso:
+
+| experimento | datos que gasta |
+|---|---|
+| **B (todo-intra)** | **cero** — se mide adentro del robot, ver abajo |
+| **A (`LATENCY`)** | **~72 MB** — no agrega tráfico, es la misma transmisión con otro parámetro; 3 min en cada estado |
+
 #### A. Bajar `LATENCY` de SRT — 105-120 ms de los 260, y los pusimos nosotros
 
 `msBuf` mide **105-120 ms** retenidos en el buffer de recepción, que es exactamente el
@@ -939,6 +949,41 @@ configuración, para la vista de manejo.
 **Lo que hay que verificar antes:** que el camino de visualización siga siendo WebRTC, que trae
 su propio jitter buffer — el todo-intra ataca el congelamiento, no ese buffer. Los dos
 experimentos son complementarios: A baja el buffer, B saca la dependencia entre cuadros.
+
+**Cuánto ahorraría, estimado OFFLINE el 2026-09-21** — un cuadro real del robot llevado a
+480x270, codificado de las dos formas a varias calidades, midiendo SSIM contra el original:
+
+| calidad (SSIM) | JPEG | **H.264 todo-intra** | ahorro |
+|---|---|---|---|
+| 0.964 | 7641 B | ~4660 B | **39%** |
+| 0.954 | 6814 B | ~3810 B | **44%** |
+| 0.946 | 6261 B | ~3340 B | **47%** |
+| 0.937 | 5874 B | ~2960 B | **50%** |
+
+**A la misma calidad visual el cuadro pesa la mitad, y el ahorro CRECE cuanto más baja es la
+calidad** — que es justo donde opera la vista de manejo.
+
+> ⚠️ **Descuento obligatorio:** medido con `libx264 -preset medium` (software), que es más
+> eficiente que el encoder por hardware del Jetson. Los encoders de hardware suelen ceder
+> 20-40%, así que la expectativa realista en el robot es **20-35%**, no 50.
+
+**Cómo verificarlo en el robot SIN GASTAR DATOS.** El encoder está en el Jetson, así que la
+pregunta —cuántos bits pesa un cuadro— se responde entera adentro del robot; lo único que
+cruza el enlace es el texto del SSH:
+
+```bash
+# TODO por localhost, en el robot
+curl -s --max-time 10 http://127.0.0.1:8093/stream > /tmp/frames.mjpeg   # 10 s de JPEG
+ls -l /tmp/frames.mjpeg                                                  # bytes del MJPEG
+gst-launch-1.0 -q filesrc location=/tmp/frames.mjpeg ! jpegparse ! nvjpegdec ! nvvidconv \
+  ! nvv4l2h264enc iframeinterval=1 idrinterval=1 num-B-Frames=0 control-rate=0 \
+  ! filesink location=/tmp/intra.h264
+ls -l /tmp/intra.h264                                                    # bytes del intra
+```
+
+Ojo con **no** levantar un segundo `go2_jpeg_stream`: el videohub es request/response y un
+segundo lector le roba la mitad de los cuadros al que ya corre. Por eso la fuente de la prueba
+es el `:8093` que ya existe, por loopback.
 
 #### Y lo que ya está descartado, para no volver
 
