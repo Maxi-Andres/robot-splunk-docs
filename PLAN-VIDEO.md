@@ -904,7 +904,38 @@ por hora de manejo.** Contra eso:
 | **B (todo-intra)** | **cero** — se mide adentro del robot, ver abajo |
 | **A (`LATENCY`)** | **~72 MB** — no agrega tráfico, es la misma transmisión con otro parámetro; 3 min en cada estado |
 
-#### A. Bajar `LATENCY` de SRT — 105-120 ms de los 260, y los pusimos nosotros
+#### A. Bajar `LATENCY` de SRT · ❌ PROBADO 2026-09-21 — el buffer bajó, la latencia NO
+
+`LATENCY` 150 → 80 en los dos extremos. El presupuesto bajó exactamente como se esperaba:
+
+```
+msTsbPdDelay  150 -> 125 ms        msBuf  129 -> 70 ms        descartes 0, retrans 0.02%
+```
+
+**Y el glass-to-glass no se movió.** Tres mediciones por correlación de contenido, mismo
+método y mismo enlace:
+
+| | H.264 absoluto |
+|---|---|
+| antes (`LATENCY=150`) | 306 ms |
+| después (`LATENCY=80`) | 314 ms · 324 ms |
+
+Bajar 59 ms de buffer de recepción movió el total en cero. **Conclusión: el buffer de SRT no
+era el que mandaba** — lo que llega antes espera más abajo. El sospechoso es el **jitter
+buffer del receptor WebRTC**, que apunta a un retardo objetivo y se come el margen.
+
+> **Revertido a 150 en los dos extremos**: no compró nada y cuesta margen de recuperación, que
+> sobre LTE sí hace falta.
+
+**Lo que se hizo en su lugar:** `playoutDelayHint = 0` sobre el receptor, en
+`AI-VL-frontend/src/hooks/useWhepStream.ts`. Es la única perilla del jitter buffer accesible
+desde una página; es **de Chromium y es una sugerencia**, no un ajuste (Firefox la ignora). El
+efecto se mide sin herramientas nuevas: el hook ya reporta `stats.jitterBufferMs`.
+
+> ⚠️ **Y la demostración en vivo de la regla "los dos extremos o ninguno"**: con HQ en 80 y el
+> robot todavía en 150, lo negociado siguió siendo **150**. SRT toma el mayor de los dos.
+
+#### A (descripción original). Bajar `LATENCY` de SRT — 105-120 ms de los 260, y los pusimos nosotros
 
 `msBuf` mide **105-120 ms** retenidos en el buffer de recepción, que es exactamente el
 presupuesto de recuperación que le dimos (`LATENCY=150`, en los dos extremos). Se eligió con
@@ -927,7 +958,167 @@ a comparar es el de §6.b.3: H.264 a ~349 ms.
 > ⚠️ **Los dos extremos o ninguno**: SRT negocia el MAYOR de los dos valores, así que bajarlo
 > de un solo lado no hace nada.
 
-#### B. H.264 todo-intra (`iframeinterval=1`) — el punto medio que nunca se probó
+#### B. H.264 todo-intra · ✅ PROBADO BIEN 2026-09-21 — **pesa LA MITAD a igual calidad**
+
+> ⚠️ **Este resultado ANULA el de más abajo.** El primer test estaba sesgado y el sesgo lo
+> detectó el operador: se le dio de comer al H.264 el **JPEG ya degradado** en vez del original,
+> así que el encoder gastó la mitad de sus bits copiando bloques que no existían en la escena.
+
+**El test corregido**: los dos caminos arrancan del **mismo cuadro original de 1080p** de la
+cámara (90 cuadros capturados por loopback en el robot con `width=0`, con el bridge parkeado
+para que ese 1080p no cruzara la red), con el **mismo reescalado por hardware** que usa
+`mjpeg_server` hoy (`nvjpegdec ! nvvidconv ! caps 480x270`), y se comparan contra el original
+reescalado **sin comprimir**:
+
+| | B/cuadro | PSNR |
+|---|---|---|
+| **JPEG q25 — lo que se sirve hoy** | **8663** | 29.30 dB |
+| intra QP32 | 8862 | **30.18 dB** |
+| intra QP36 | 6075 | 29.86 dB |
+| **intra QP40** | **4151** | **29.34 dB** |
+
+**A calidad indistinguible (29.30 vs 29.34 dB) el todo-intra pesa 4151 B contra 8663: la
+MITAD.** Y a igual tamaño (QP32) entrega casi **1 dB más**. El ahorro coincide con la
+estimación offline previa (39-50%), así que **el encoder por hardware no perdió la ventaja** —
+lo que la escondía era el test mal planteado.
+
+Aplicado a la rama de manejo de hoy (0.743 Mbps): serían **~0.36 Mbps a la misma calidad**, o
+la misma banda con una imagen visiblemente mejor.
+
+**Controles del método, porque sin ellos el número no vale:**
+
+* **Alineación verificada**, no supuesta: el cuadro N contra N da 30.77 dB y contra N±1 da
+  26.7 y 28.7. Sin ese chequeo, una corrida desalineada devuelve ~26 dB planos y parece que
+  nada funciona (fue lo que pasó en el primer intento).
+* **Corrección de rango de color aplicada a LOS DOS candidatos por igual.** El factor de
+  ganancia ajustado salió **0.981 para el JPEG** (rango completo, como debe ser) y **0.85 para
+  el H.264** — o sea que la corrección hacía falta y sólo de un lado; sin ella el H.264 pierde
+  ~4 dB que no son de codificación.
+
+**Lo que FALTA para poder usarlo, y no es menor:** el `/drive` muestra MJPEG con un `<img>`
+sobre multipart. Para H.264 hace falta un decodificador en el navegador, y hoy el único camino
+armado es WebRTC — que arrastra el jitter buffer de los ~300 ms (ver A). Cambiar 52% de los
+bytes por +280 ms de latencia **es un mal negocio para manejar**.
+
+> **La salida, sin probar todavía:** como cada cuadro es independiente, el todo-intra se puede
+> entregar igual que el MJPEG —cuadro por cuadro, por el WebSocket que ya existe— y decodificar
+> en el navegador con **WebCodecs (`VideoDecoder`)**, sin jitter buffer ni WebRTC. Eso daría el
+> transporte del MJPEG con la mitad de los bytes. Es el próximo experimento.
+
+#### C. IDEA DEL OPERADOR (2026-09-21): dos H.264, uno por rama, en vez de H.264 + MJPEG
+
+El planteo, y resuelve la tensión que venimos arrastrando: **hoy una sola codificación tiene
+que servir a dos consumidores con necesidades opuestas.** El NVR quiere resolución y no le
+importa esperar; la vista de manejo quiere llegar ya y no necesita 1080p. Por eso el MJPEG
+sigue existiendo: es la única rama sin buffers.
+
+La propuesta es dejar de pedirle las dos cosas a un stream y **codificar dos veces en el
+Jetson**:
+
+| | **A — NVR** | **B — manejo** (reemplaza al MJPEG) |
+|---|---|---|
+| resolución | 1080p | baja (480x270, como el MJPEG de hoy) |
+| GOP | normal, con predicción entre cuadros | **todo-intra** (cada cuadro independiente) |
+| transporte | SRT con presupuesto generoso | **pelado: sin retransmisión ni buffers** |
+| latencia | no importa | es lo único que importa |
+| banda estimada | ~0.8 Mbps | **~0.47 Mbps** (4151 B x 14 fps, medido en §6.g B) |
+
+**Por qué encaja:** el todo-intra y un transporte sin ARQ son la pareja natural — sin
+dependencia entre cuadros, perder un paquete cuesta **un cuadro**, no un segundo de
+congelamiento hasta el próximo IDR. Es exactamente la propiedad que hace que el MJPEG aguante
+un enlace feo, con la mitad de los bytes.
+
+**Queda igual que hoy en arquitectura** —dos ramas, una por consumidor— sólo que la barata
+pasa de MJPEG a H.264 y **consume la mitad**.
+
+**Lo que hay que verificar antes de construirlo:**
+
+1. Que el NVENC del Orin NX sostenga **dos codificaciones simultáneas** desde el mismo tee
+   (debería: el encoder ya está casi ocioso, y la CPU no interviene).
+2. El decodificador del lado del navegador — que es el §6.g D, abajo.
+3. Que el reparto del tee no le robe cadencia a ninguna de las dos ramas (`nvr_offer` ya
+   tiene su compuerta arreglada; haría falta una segunda, independiente).
+
+#### D. Entregar el todo-intra como se entrega el MJPEG, y decodificar con WebCodecs
+
+El paso que falta para que C y B sirvan: **sacar el jitter buffer de la ecuación.** Cada cuadro
+intra es independiente, así que se puede mandar uno por mensaje por el WebSocket que ya
+existe —igual que los JPEG de hoy— y decodificarlo en el navegador con `VideoDecoder`
+(WebCodecs), sin WebRTC, sin SRT y sin jitter buffer.
+
+Si funciona, la vista de manejo queda con **el transporte y la latencia del MJPEG (~24 ms) y la
+mitad de los bytes**.
+
+**✅ PROBADO 2026-09-21 — el decodificador no es un obstáculo.** Los 90 cuadros todo-intra que
+salieron del `nvv4l2h264enc` del robot, decodificados en el navegador cuadro por cuadro:
+
+```
+decodificados  90/90            codec  avc1.424015  (derivado del SPS del robot)
+total          63 ms los 90  ->  0.7 ms POR CUADRO
+navegador      Firefox 154 / Linux
+```
+
+* **`VideoDecoder` acepta el Annex-B tal como sale del encoder**, sin remuxear a MP4: cada
+  cuadro es un `EncodedVideoChunk` de tipo `key` y listo.
+* **0.7 ms por cuadro.** Contra los 24 ms que hoy cuesta TODO el camino MJPEG, y contra los
+  ~300 ms del jitter buffer de WebRTC, el decode es ruido.
+* **Anda en Firefox**, no sólo en Chromium — no hay que apostar a un navegador.
+
+> ⚠️ **Lo que ESTO todavía no prueba:** se decodificó un archivo, no un stream vivo. Falta el
+> camino de entrega (robot → backend → navegador) y el costo de dibujar en el canvas. Lo que sí
+> queda descartado es el riesgo que hacía dudar del plan: que el decodificador no existiera, no
+> aceptara el bitstream, o costara caro.
+
+**Trampas del experimento, las dos que costaron una vuelta:**
+
+1. **El codec sale del SPS, y el primer byte del NAL NO es el perfil.** `s.at + s.hdr` apunta a
+   la cabecera del NAL (`0x67`); perfil, constraints y level son los TRES SIGUIENTES. Leerlo
+   corrido da `avc1.674240`, que **`configure()` acepta sin chistar** y el decode rechaza con
+   un inútil *"Operation is not supported"*. El valor bueno es `avc1.424015`. Pedir siempre
+   `VideoDecoder.isConfigSupported()` antes, que responde sí o no sin ambigüedad.
+2. **WebCodecs no existe fuera de un contexto seguro**: por HTTP plano desde otra máquina no
+   está definido. En producción no molesta (la app ya va por HTTPS), pero cualquier banco de
+   pruebas tiene que correr en `localhost` o con TLS.
+
+**Lo que sigue, en orden:** (a) que el robot emita la segunda rama todo-intra (§6.g C), (b)
+relayarla por el WebSocket que ya existe, (c) reemplazar el `<img>` del `/drive` por un canvas
+alimentado por `VideoDecoder`, con el mismo descarte-y-seguí que ya tiene el MJPEG.
+
+#### ~~B. H.264 todo-intra · PROBADO Y DESCARTADO — no sirve en este hardware~~ (ANULADO, test sesgado)
+
+Medido **en el robot**, con su propio encoder, sobre 121 cuadros reales del `:8093`
+(480x270, calidad 25, 9370 B/cuadro), a QP fijo (`ratecontrol-enable=0 preset-level=0
+quant-i-frames=N`). La fidelidad es PSNR contra el propio JPEG, **corrigiendo antes un
+desajuste de rango de color** que si no domina todo el número:
+
+| codificación | B/cuadro | vs JPEG | PSNR corregido |
+|---|---|---|---|
+| intra QP32 | 9789 | **104%** | 31.55 dB |
+| intra QP36 | 6899 | 74% | 30.77 dB |
+| intra QP40 | 4727 | 50% | 29.54 dB |
+| **inter QP32** (H.264 normal) | **2827** | **30%** | **31.86 dB** |
+
+**El todo-intra no ahorra nada**: a la fidelidad más alta que alcanza pesa lo mismo que el
+JPEG o un poco más. La estimación offline previa decía 39-50% de ahorro, pero estaba hecha con
+`libx264` por software; **el encoder por hardware del Jetson se come esa ventaja entera** — era
+el descuento marcado como riesgo, y resultó del 100%.
+
+> **Lo que el mismo experimento demostró, y es lo que importa:** al **mismo QP** —misma
+> fidelidad, mismo encoder, misma fuente, sólo cambia la predicción— el H.264 **normal** pesa
+> **2827 B contra los 9370 del JPEG**, un tercio, con la fidelidad más alta de las cuatro. El
+> camino no es un formato intermedio: es el H.264 que ya existe, atacándole la LATENCIA (→ A).
+
+**Trampas de este experimento, para no repetirlas:**
+
+1. **El rango de color.** El encoder emite rango limitado y ffmpeg lo decodifica como
+   completo: media 77 contra 82 y desvío 70 contra 61. Sin corregir eso, TODAS las métricas
+   daban ~26 dB planas y parecía que los cuadros estaban desalineados. No lo estaban.
+2. **La referencia está sesgada.** Comparar contra el JPEG castiga al H.264 por *suavizar* los
+   bloques del JPEG en vez de copiarlos. Por eso ningún encode pasa de ~32 dB. La comparación
+   de TAMAÑOS a QP fijo no tiene ese problema, y es la que decide.
+3. Los archivos del robot pesan ~1 MB por 12 s: se copian y se analizan en HQ sin costo real.
+
+#### ~~B. H.264 todo-intra (`iframeinterval=1`) — el punto medio que nunca se probó~~ (descripción original)
 
 Cada cuadro un keyframe: **independiente, como MJPEG**. Se acaban las dos cosas que hacen al
 H.264 frágil acá — la dependencia entre cuadros (y con ella el congelamiento hasta el próximo
@@ -991,6 +1182,36 @@ es el `:8093` que ya existe, por loopback.
 hardware **sólo JPEG** (NVJPG) — irían por CPU, en la máquina donde ya medimos lo que cuesta
 la CPU (§6.c, los 77 ms de cgroup congelado). **Verificar con `gst-inspect-1.0 | grep -i webp`
 antes de descartarlo del todo**, pero la expectativa es que no haya encoder acelerado.
+
+### 6.h ⚠️ El `/drive` en H.264 no conecta en una máquina nueva — el certificado
+
+Síntoma: el selector de transporte queda en "connecting" para siempre en una computadora, y
+funciona en otra, con la misma página y la misma red.
+
+**Causa, verificada el 2026-09-21:**
+
+```
+openssl x509 -in auto.crt -noout -subject -issuer -ext subjectAltName
+  subject=CN=mediamtx      issuer=CN=mediamtx      subjectAltName: (no tiene)
+```
+
+El certificado de mediamtx es **autofirmado y sin `subjectAltName`**, y desde 2017 los
+navegadores rechazan de plano un certificado sin SAN. La app va por HTTPS en el **:8443** y el
+WHEP está en el **:8889** — **otro origen**, así que la excepción hay que aceptarla aparte. En
+la máquina que anda alguien la aceptó alguna vez; en una nueva, el `fetch` al WHEP falla en TLS
+**sin error visible en la página** y el estado se queda en "connecting". Y no hay fallback
+posible a `http://`: una página HTTPS no puede pedir contenido en claro (mixed content).
+
+**Workaround inmediato:** abrir `https://<ip-de-HQ>:8889/robot/whep` en una pestaña, aceptar la
+advertencia, volver y recargar.
+
+**Arreglo de verdad, dos caminos:**
+
+1. **Proxear el WHEP por el backend** (`POST /api/whep` → mediamtx), para que herede el origen
+   y el certificado que la app ya usa. Anda en toda máquina sin excepciones. **No** resuelve
+   ICE: el UDP de mediamtx (`:8189`) tiene que seguir siendo alcanzable desde el cliente.
+2. Emitirle a mediamtx un certificado **con SAN** (IP y nombre). Sigue siendo autofirmado, así
+   que sigue necesitando una excepción por máquina — pero al menos se puede aceptar.
 
 ## 7. Lo que no se resolvió
 
