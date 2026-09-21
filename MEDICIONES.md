@@ -10,6 +10,63 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 
 ---
 
+## 2026-09-21 — los 92 Mbps del bus interno del Go2: qué son y si molestan
+
+El medidor del IR1101 marcaba **97.81 de 100 Mbps** en `Fa0/0/1` (VLAN 123, ROBOT-GO2) y la
+pregunta era de dónde salían, porque lo nuestro son ~2.5 Mbps.
+
+**En el Jetson:** RX **92.12 Mbps**, TX 2.47. De los 8478 paquetes/s de entrada, **8317 son
+multicast** (98%), de 1358 B promedio. O sea: **no es tráfico dirigido al Jetson ni al router,
+es el bus interno del robot inundando el segmento** — PC1, el Jetson y el puerto del IR1101
+cuelgan del mismo dominio de broadcast, y el switch del Go2 replica el multicast a todos.
+
+**Desglose por grupo** (uniéndose a cada uno y contando, sin root, 10 s):
+
+| grupo | tasa | qué es |
+|---|---|---|
+| **`239.255.0.1:7401`** | **90.98 Mbps** | **datos DDS — el 99%** |
+| `239.255.0.1:7400` | 0.01 Mbps | descubrimiento DDS |
+| `230.1.1.1:1720` | 1.94 Mbps | el H.264 nativo del Go2 |
+
+Cruzado con `CENSO-GO2.md`, los únicos tópicos que pueden pesar eso son los que ese censo
+**no midió a propósito** porque ya iban a la denylist: `/utlidar/cloud`,
+`/utlidar/cloud_deskewed`, `/utlidar/voxel_map`, `/uslam/*`. **Nada de eso lo consumimos**: la
+telemetría usa `/lf/lowstate` y `/lf/sportmodestate`, y el video sale por el videohub.
+
+### Lo que dice el router, y por qué NO hay que correr a arreglarlo
+
+```
+Fa0/0/1: 5 minute input rate 97358000 bits/sec, 8808 packets/sec
+         86742334 multicast de 89205710 paquetes de entrada
+         Input queue 0/375/0/0 (size/max/drops/flushes)   <- CERO drops
+show ip igmp snooping querier  -> tabla VACIA
+show ip igmp snooping groups   -> tabla VACIA
+```
+
+**Cero descartes**, y el video medido en 38 ms con p95 de 40. Lo que falta es **margen, no
+rendimiento**. Y hay una corrección importante sobre cómo se arreglaría: **el snooping en el
+IR1101 no frena lo que LLEGA** — el que inunda es el switch interno del Go2, y el router sólo
+lo recibe. La única palanca por software sería que el IR1101 haga de **querier en la VLAN 123**
+(no en la 1: el puerto del robot está en la 123), y **sólo sirve si el switch del Go2 hace
+snooping**; si no, seguirá inundando pase lo que pase en el router.
+
+> ⚠️ **Y apagar el LiDAR para bajar el tráfico tiene un costo que no es de red: el Go2 lo usa
+> para evitar obstáculos.** Perderlo mientras se teleopera es peor que 91 Mbps que hoy no
+> cuestan nada. No se encontró mecanismo verificado para apagarlo: `utlidar/switch` no existe
+> en la copia del SDK ni en el fork de ROS2, y PC1 no tiene SSH.
+
+**Hallazgo lateral, y probablemente más urgente que todo esto:**
+
+```
+%CDP-4-DUPLEX_MISMATCH: FastEthernet0/0/4 (not full duplex) with 9500-SILK Te1/0/5 (full)
+```
+
+`Fa0/0/4` es la **VLAN 40, el uplink** — por ahí sale el tráfico del robot hacia HQ. Un
+desajuste de dúplex ahí produce colisiones y degrada de verdad, y **sí está en el camino del
+video**. A diferencia del multicast, eso no cuesta ninguna función del robot arreglarlo.
+
+---
+
 ## 2026-09-21 — la rama de manejo en H.264, PUNTA A PUNTA hasta HQ
 
 Camino completo andando: robot (`/h264`) → relay del bridge → backend (`/ws/view-h264`) →
