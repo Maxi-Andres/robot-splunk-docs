@@ -10,6 +10,37 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 
 ---
 
+## 2026-09-21 — la rama de manejo en H.264, PUNTA A PUNTA hasta HQ
+
+Camino completo andando: robot (`/h264`) → relay del bridge → backend (`/ws/view-h264`) →
+cliente en HQ. Medido con la marca `X-Capture` que viaja en cada mensaje, contra el reloj del
+robot con offset SNTP — el mismo método que el MJPEG.
+
+| | MJPEG (lo de hoy) | **H.264 todo-intra** |
+|---|---|---|
+| **latencia captura → HQ** | **24 ms** | **37 ms** |
+| cuadros | 10 fps | **14.35 fps** |
+| banda | 0.710 Mbps | **0.439 Mbps** |
+| peso por cuadro | ~9000 B | **3821 B** |
+| cadencia de llegada | 72 ms | **72 ms** — la de la cámara, sin ráfagas ni backlog |
+
+**+13 ms por 43% más cuadros y 38% menos banda.** Los 13 ms son el encode en el robot (15.5 ms
+medidos en lockstep: cierra). El decode en el navegador agrega **0.7 ms**.
+
+> **Lo que esto cambia:** la vista de manejo puede dejar de ser MJPEG sin pagar latencia
+> perceptible, y con 38% menos banda — que es justo el seguro que hace falta cuando se vuelve a
+> un enlace con pérdida, donde el MJPEG se fue a 815 ms sólo porque la escena se puso texturada.
+
+**Defecto encontrado al integrarlo, y estaba documentado en el propio repo:** el relay sólo
+EMPUJA, pero uvicorn manda pings de keepalive y `websocket-client` contesta PONG **únicamente
+mientras algo está bloqueado en `recv()`**. Sin un hilo que drene el socket, el servidor cierra
+a los ~20 s y el siguiente `send` falla con *"socket is already closed"* — un bucle de
+reconexión que parece un problema de red y no lo es. El productor JPEG de
+`robot_camera_bridge.py` documenta exactamente esa trampa; estaba ahí para copiarla y no se
+copió. **Y una prueba de 15 s no lo detecta**: hay que medir más que el timeout del servidor.
+
+---
+
 ## 2026-09-21 — la rama de manejo en H.264 todo-intra, corriendo en el robot
 
 Primera medición de la rama nueva (`/h264` en el `mjpeg_server`, `POST /config {"h264":1}`),
