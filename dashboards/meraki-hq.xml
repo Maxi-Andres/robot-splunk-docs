@@ -1,0 +1,558 @@
+<form theme="dark" version="1.1">
+  <label>Silk HQ — Meraki · Classic</label>
+  <description>Estado, seguridad, clientes y capacidad de la red Meraki. Simple XML: se versiona en robot-splunk-docs/dashboards/meraki-hq.xml</description>
+
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="tr">
+      <label>Rango</label>
+      <default>
+        <earliest>-24h@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="net" searchWhenChanged="true">
+      <label>Red (solo paneles de API)</label>
+      <default>*</default>
+      <initialValue>*</initialValue>
+      <choice value="*">Todas</choice>
+      <fieldForLabel>networkName</fieldForLabel>
+      <fieldForValue>networkName</fieldForValue>
+      <search>
+        <query>index=meraki sourcetype=meraki:api:device | stats count by networkName | fields networkName</query>
+        <earliest>-24h</earliest>
+        <latest>now</latest>
+      </search>
+    </input>
+  </fieldset>
+
+  <!-- ============ FILA 1: estado de un vistazo ============ -->
+  <row>
+    <panel>
+      <title>Equipos online</title>
+      <single>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:device networkName="$net$"
+| stats latest(status) as status by serial
+| stats count(eval(status="online")) as online count as total
+| eval v=online." de ".total
+| fields v</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="colorMode">block</option>
+        <option name="useColors">0</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Equipos no online</title>
+      <single>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:device networkName="$net$"
+| stats latest(status) as status by serial
+| where status!="online"
+| stats count as v
+| appendpipe [| stats count | where count=0 | eval v=0 | fields v]
+| fields v</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="colorMode">block</option>
+        <option name="useColors">1</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[0,2]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Uplink activo</title>
+      <single>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:uplink networkName="$net$"
+| stats latest(status) as status by uplink
+| where status="active"
+| stats values(uplink) as v
+| eval v=mvjoin(v," + ")
+| appendpipe [| stats count | where count=0 | eval v="ninguno" | fields v]</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="colorMode">block</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Latencia WAN</title>
+      <single>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:uplink networkName="$net$" status=active
+| stats latest(latencyMs) as v
+| eval v=round(v,0)</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="unit">ms</option>
+        <option name="colorMode">block</option>
+        <option name="useColors">1</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[60,150]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Pérdida WAN</title>
+      <single>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:uplink networkName="$net$" uplink=wan*
+| stats latest(lossPercent) as loss by uplink
+| stats max(loss) as v
+| eval v=round(v,2)</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="unit">%</option>
+        <option name="colorMode">block</option>
+        <option name="useColors">1</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[1,5]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Clientes vistos</title>
+      <single>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:client networkName="$net$" | stats dc(mac) as v</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="colorMode">block</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Syslog por minuto</title>
+      <single>
+        <search>
+          <query>index=meraki sourcetype=meraki:syslog
+| timechart span=1m count as c
+| stats avg(c) as v
+| eval v=round(v,0)</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="colorMode">block</option>
+      </single>
+    </panel>
+  </row>
+
+  <!-- ============ FILA 2: inventario ============ -->
+  <row>
+    <panel>
+      <title>Inventario — un renglón por equipo, último estado conocido</title>
+      <table>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:device networkName="$net$"
+| stats latest(status) as Estado latest(productType) as Tipo latest(model) as Modelo latest(lanIp) as "IP LAN" latest(publicIp) as "IP pública" latest(firmware) as Firmware latest(networkName) as Red latest(_time) as t by deviceName
+| eval "Último reporte"=strftime(t,"%d/%m %H:%M")
+| rename deviceName as Equipo
+| table Equipo Red Tipo Modelo Estado "IP LAN" "IP pública" Firmware "Último reporte"
+| sort Equipo</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">15</option>
+        <format type="color" field="Estado">
+          <colorPalette type="map">{"online":#53A051,"alerting":#F8BE34,"dormant":#708794,"offline":#DC4E41}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============ FILA 3: WAN ============ -->
+  <row>
+    <panel>
+      <title>Throughput por uplink (Mbps)</title>
+      <chart>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:uplinkusage networkName="$net$"
+| eval mbps=(sentBytes+receivedBytes)*8/1000000/intervalSec
+| timechart span=5m avg(mbps) by uplink</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">area</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.axisTitleY.text">Mbps</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Latencia y pérdida por uplink</title>
+      <chart>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:uplink networkName="$net$"
+| timechart span=5m avg(latencyMs) as "Latencia (ms)" avg(lossPercent) as "Pérdida (%)"</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">ms / %</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- ============ FILA 4: seguridad y tráfico ============ -->
+  <row>
+    <panel>
+      <html>
+        <div style="padding:4px 10px;color:#9aa7b1;font-size:12px;border-left:3px solid #4f6d7a;background:#1b1f23">
+          Los paneles de abajo salen del <b>syslog</b>, que lo manda cada equipo directo al
+          puerto 5515. Esos eventos <b>no llevan el nombre de la red</b>, así que el filtro
+          &quot;Red&quot; de arriba no los afecta: se distinguen por equipo.
+        </div>
+      </html>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Conexiones permitidas vs bloqueadas</title>
+      <chart>
+        <search>
+          <query>index=meraki sourcetype=meraki:syslog mk_type=flows
+| rex field=_raw "\sflows\s+(?&lt;accion&gt;\w+)\s"
+| eval accion=case(accion="allow","Permitidas",accion="deny","Bloqueadas",true(),accion)
+| timechart span=10m count by accion</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.fieldColors">{"Permitidas":0x53A051,"Bloqueadas":0xDC4E41}</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Puertos y servicios más usados</title>
+      <table>
+        <search>
+          <query>index=meraki sourcetype=meraki:syslog (mk_type=flows OR mk_type=ip_flow_start)
+| eval Servicio=case(dport=443,"HTTPS",dport=80,"HTTP",dport=53,"DNS",dport=22,"SSH",dport=123,"NTP",dport=3389,"RDP",dport=5228,"Google push",dport=1720,"H.323 / video",dport=8088,"Splunk HEC",dport=8000,"Splunk UI",true(),"—")
+| stats count as Conexiones dc(src) as Clientes by dport protocol Servicio
+| rename dport as Puerto, protocol as Protocolo
+| sort - Conexiones
+| head 15</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">15</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Destinos más contactados</title>
+      <table>
+        <search>
+          <query>index=meraki sourcetype=meraki:syslog (mk_type=flows OR mk_type=ip_flow_start)
+| stats count as Conexiones dc(src) as Clientes values(protocol) as Protocolos by dst
+| eval Protocolos=mvjoin(Protocolos,", ")
+| rename dst as Destino
+| sort - Conexiones
+| head 15</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">15</option>
+      </table>
+    </panel>
+    <panel>
+      <title>Sitios visitados — dominios</title>
+      <table>
+        <search>
+          <query>index=meraki sourcetype=meraki:syslog mk_type=urls
+| rex field=_raw "request:\s+\S+\s+\w+://(?&lt;Dominio&gt;[^/\s:]+)"
+| where isnotnull(Dominio)
+| stats count as Pedidos dc(mac) as Dispositivos by Dominio
+| sort - Pedidos
+| head 20</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">20</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Reglas de firewall que más se aplican</title>
+      <table>
+        <search>
+          <query>index=meraki sourcetype=meraki:syslog (mk_type=firewall OR mk_type=vpn_firewall)
+| rex field=_raw "pattern:\s+(?&lt;Regla&gt;.+?)\s*$"
+| stats count as Eventos dc(src) as Origenes latest(_time) as t by mk_type Regla
+| eval "Último"=strftime(t,"%d/%m %H:%M")
+| rename mk_type as Tipo, Origenes as "Orígenes"
+| table Tipo Regla "Orígenes" Eventos "Último"
+| sort - Eventos
+| head 15</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">15</option>
+      </table>
+    </panel>
+    <panel>
+      <title>Quién habla más — origen interno</title>
+      <table>
+        <search>
+          <query>index=meraki sourcetype=meraki:syslog (mk_type=flows OR mk_type=ip_flow_start)
+| stats count as Conexiones dc(dst) as Destinos by src
+| rename src as Origen
+| sort - Conexiones
+| head 15</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">15</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============ FILA 5: clientes y wireless ============ -->
+  <row>
+    <panel>
+      <title>Clientes wireless por SSID</title>
+      <chart>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:client networkName="$net$" connectionType=wireless
+| timechart span=30m dc(mac) by ssid</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.axisTitleY.text">clientes</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Utilización de canal por AP (%)</title>
+      <chart>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:wireless networkName="$net$"
+| timechart span=15m avg(utilizationTotal) by apName</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">% ocupación</option>
+        <option name="charting.axisY.maximumNumber">100</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Clientes por punto de acceso</title>
+      <chart>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:client networkName="$net$"
+| stats dc(mac) as Clientes by recentDeviceName
+| where isnotnull(recentDeviceName) AND recentDeviceName!=""
+| rename recentDeviceName as AP
+| sort - Clientes</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">bar</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Fabricantes de los dispositivos conectados</title>
+      <chart>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:client networkName="$net$"
+| stats dc(mac) as Dispositivos by manufacturer
+| where isnotnull(manufacturer) AND manufacturer!=""
+| rename manufacturer as Fabricante
+| sort - Dispositivos
+| head 10</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">pie</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Top clientes por consumo</title>
+      <table>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:client networkName="$net$"
+| stats latest(usageSentKb) as up latest(usageRecvKb) as down latest(ip) as IP latest(ssid) as SSID latest(connectionType) as Tipo latest(manufacturer) as Fabricante latest(recentDeviceName) as AP by mac description
+| eval "Subida (MB)"=round(up/1024,1), "Bajada (MB)"=round(down/1024,1), "Total (MB)"=round((up+down)/1024,1)
+| rename description as Cliente, mac as MAC
+| table Cliente MAC IP SSID Tipo Fabricante AP "Subida (MB)" "Bajada (MB)" "Total (MB)"
+| sort - "Total (MB)"
+| head 20</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">20</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============ FILA 6: capacidad y tendencia ============ -->
+  <row>
+    <panel>
+      <title>Tráfico promedio por hora del día (Mbps)</title>
+      <chart>
+        <search>
+          <query>index=meraki sourcetype=meraki:api:uplinkusage networkName="$net$"
+| eval mbps=(sentBytes+receivedBytes)*8/1000000/intervalSec
+| eval Hora=strftime(_time,"%H")
+| stats avg(mbps) as Mbps by Hora
+| eval Mbps=round(Mbps,2)
+| sort Hora</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>300s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.axisTitleX.text">hora</option>
+        <option name="charting.axisTitleY.text">Mbps</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Volumen de syslog por tipo — qué genera la red</title>
+      <chart>
+        <search>
+          <query>index=meraki sourcetype=meraki:syslog
+| timechart span=10m count by mk_type</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">area</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.axisTitleY.text">eventos</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="charting.drilldown">none</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- ============ FILA 7: eventos ============ -->
+  <row>
+    <panel>
+      <title>Eventos de los equipos — asociaciones, autenticación, sistema</title>
+      <table>
+        <search>
+          <query>index=meraki sourcetype=meraki:syslog mk_type=events
+| rex field=_raw "reason='(?&lt;Motivo&gt;[^']*)'"
+| fillnull value="—" Motivo
+| stats count as Eventos latest(_time) as t by mk_host type Motivo
+| eval "Último"=strftime(t,"%d/%m %H:%M:%S")
+| rename mk_host as Equipo, type as Evento
+| table Equipo Evento Motivo Eventos "Último"
+| sort - Eventos
+| head 20</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>120s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">20</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Últimos 40 eventos, crudos</title>
+      <table>
+        <search>
+          <query>index=meraki sourcetype=meraki:syslog
+| sort - _time
+| head 40
+| eval Hora=strftime(_time,"%d/%m %H:%M:%S"), Detalle=substr(_raw,1,180)
+| rename mk_host as Equipo, mk_type as Tipo
+| table Hora Equipo Tipo Detalle</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">20</option>
+        <option name="wrap">false</option>
+      </table>
+    </panel>
+  </row>
+</form>
