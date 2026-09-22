@@ -1,0 +1,35 @@
+# Meraki Dashboard API -> Splunk HEC. Runs on the SPLUNK SERVER (192.168.20.200), not on
+# the robot and not on the workstation: the API leg needs internet, the HEC leg is then
+# localhost, and that box does not get shut down.
+#
+#   sudo cp systemd/meraki-poller.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now meraki-poller
+#
+# This unit covers ONLY the API half of the integration. Syslog (udp/5515) and the alert
+# webhooks are pushed by the Meraki cloud and have no process here -- if those panels are
+# empty, this service is not the thing to restart. See README.md.
+[Unit]
+Description=Meraki Dashboard API -> Splunk HEC (Silk HQ dashboard feed)
+After=network-online.target
+Wants=network-online.target
+# In [Unit], not [Service]: systemd 245 silently ignores them under [Service], which
+# disables the crash-loop guard without a word. Same trap as te-poller and the robot agent.
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+[Service]
+User=silkadmin
+WorkingDirectory=/home/silkadmin/robot-splunk-docs/meraki-hq
+EnvironmentFile=/home/silkadmin/robot-splunk-docs/meraki-hq/.env
+ExecStart=/home/silkadmin/robot-splunk-docs/meraki-hq/run.sh
+Restart=always
+RestartSec=30
+# The API key and the HEC token are read from $HOME at mode 600, so the unit must run as
+# the user that owns them. That is also why there is no DynamicUser or ProtectHome here.
+# This shares a box with splunkd, which is the thing that must not be starved.
+MemoryMax=128M
+CPUQuota=10%
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

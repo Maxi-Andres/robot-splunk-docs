@@ -47,7 +47,8 @@ Es la que más duele porque aparece repartida. Hoy `192.168.20.99`.
 | `robot-video-pipeline/robot/robot-video.service` | 16 | `PUBLISH_HOST` — a dónde publica el robot | **No llega el video** |
 | `robot-video-pipeline/frigate/docker-compose.yml` | 4-5 | solo comentarios (URLs de la UI) | cosmético |
 | `robot-video-pipeline/frigate/config/backup_config.yaml` | 18 | copia de respaldo, sin uso | ninguno |
-| `robot-splunk-docs/dashboard-go2.xml` | 108, 111 | iframe y link del panel de video | **panel negro** |
+| `robot-splunk-docs/dashboards/go2-telemetria-thousandeyes.xml` | 636, 638, 640 | `<img>` y links del panel de video | **panel negro** |
+| `robot-splunk-docs/dashboards/go2-telemetria.xml` | 150, 152, 154 | idem, en el dashboard sin ThousandEyes | **panel negro** |
 
 Y además, fuera de los archivos:
 

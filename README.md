@@ -72,9 +72,14 @@ video después de un rato está en `AI-VL-ecosystem/docs/CORTES_DE_VIDEO_Y_SOBRE
 
 **Entregables de Splunk**
 
-- `dashboard-go2.xml` — dashboard con panel de video incluido.
-- `dashboard-go2-sin-video.xml` — la misma vista sin el panel de video, para cuando la
-  cadena de video no está levantada.
+- `dashboards/` — los XML de los dashboards que están vivos en Splunk, un archivo por
+  vista y **con el mismo nombre que la vista**. El mapeo a títulos de la UI está en
+  `dashboards/README.md`. Las iteraciones viejas quedaron en `dashboards/archive/`.
+- `meraki-hq/` — el poller de la API de Meraki que alimenta el dashboard `Silk HQ —
+  Meraki`, con el mismo patrón que `te-poller`: productor puro, pipeado a `hec_shipper`.
+- `INTEGRACION-MERAKI.md` — las tres patas de la integración (API, syslog, webhooks) y qué
+  paneles enciende cada una. **La API y el syslog están sin configurar del lado Meraki**,
+  por eso el dashboard está vacío.
 
 El panel de video usa un `<img>` apuntado al MJPEG de Frigate, **no** un `<iframe>`: el
 sanitizador de Simple XML de Splunk 9 elimina los `<iframe>` y no hay setting que lo

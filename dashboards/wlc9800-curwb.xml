@@ -1,0 +1,774 @@
+<form version="1.1" theme="dark">
+  <label>Cisco WLC 9800 + CURWB Telemetry Dashboard</label>
+
+  <description>
+    Monitoreo Catalyst 9800 mediante Model Driven Telemetry y monitoreo CURWB/URWB mediante Cisco URWB Telemetry Protocol.
+  </description>
+
+
+  <!-- ====================================================== -->
+  <!-- INPUTS                                                 -->
+  <!-- ====================================================== -->
+
+  <fieldset submitButton="false" autoRun="true">
+
+    <input type="time" token="time_tok">
+      <label>Rango de tiempo</label>
+      <default>
+        <earliest>-24h@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+
+    <input type="text" token="wlc_host_tok">
+      <label>Hostname WLC</label>
+      <default>*</default>
+      <initialValue>*</initialValue>
+    </input>
+
+    <input type="text" token="index_tok">
+      <label>Index</label>
+      <default>wlc9800</default>
+      <initialValue>wlc9800</initialValue>
+    </input>
+
+  </fieldset>
+
+
+  <!-- ====================================================== -->
+  <!-- BASE SEARCH WLC                                        -->
+  <!-- ====================================================== -->
+
+  <search id="base_wlc">
+    <query>
+index=$index_tok$ sourcetype=cisco:wlc9800:telemetry host=$wlc_host_tok$
+| spath
+    </query>
+    <earliest>$time_tok.earliest$</earliest>
+    <latest>$time_tok.latest$</latest>
+  </search>
+
+
+  <search id="base_recent">
+    <query>
+index=$index_tok$ sourcetype=cisco:wlc9800:telemetry host=$wlc_host_tok$
+| spath
+    </query>
+    <earliest>-30m</earliest>
+    <latest>now</latest>
+  </search>
+
+
+  <!-- ====================================================== -->
+  <!-- BASE SEARCH CURWB                                      -->
+  <!-- ====================================================== -->
+
+  <search id="base_curwb">
+    <query>
+index=$index_tok$ sourcetype=cisco:urwb:telemetry
+    </query>
+    <earliest>$time_tok.earliest$</earliest>
+    <latest>$time_tok.latest$</latest>
+  </search>
+
+
+  <search id="base_curwb_recent">
+    <query>
+index=$index_tok$ sourcetype=cisco:urwb:telemetry
+    </query>
+    <earliest>-15m</earliest>
+    <latest>now</latest>
+  </search>
+
+
+
+  <!-- ====================================================== -->
+  <!-- WLC RESUMEN                                            -->
+  <!-- ====================================================== -->
+
+  <row>
+
+    <panel>
+      <title>Clientes conectados</title>
+      <single>
+
+        <search base="base_recent">
+          <query>
+search measurement="Cisco-IOS-XE-wireless-client-oper:client-oper-data/common-oper-data"
+| bin _time span=1s
+| eventstats max(_time) as last_snapshot
+| where _time=last_snapshot
+| stats count as clientes
+          </query>
+        </search>
+
+        <option name="drilldown">none</option>
+
+      </single>
+    </panel>
+
+
+    <panel>
+      <title>APs Activos / Total</title>
+      <single>
+
+        <search base="base_recent">
+          <query>
+search measurement="Cisco-IOS-XE-wireless-access-point-oper:access-point-oper-data/capwap-data"
+| bin _time span=1s
+| eventstats max(_time) as last_snapshot
+| where _time=last_snapshot
+| stats count as activos
+| eval total=activos
+| eval APs=activos." / ".total
+| table APs
+          </query>
+        </search>
+
+        <option name="drilldown">none</option>
+
+      </single>
+    </panel>
+
+
+    <panel>
+      <title>CPU %</title>
+      <single>
+
+        <search base="base_recent">
+          <query>
+search measurement="Cisco-IOS-XE-process-cpu-oper:cpu-usage/cpu-utilization"
+| eval cpu=coalesce('fields.cpu_utilization','fields.five_seconds')
+| where isnotnull(cpu)
+| stats latest(cpu) as cpu
+| eval cpu=round(cpu,1)
+          </query>
+        </search>
+
+        <option name="unit">%</option>
+        <option name="drilldown">none</option>
+        <option name="colorBy">value</option>
+        <option name="rangeValues">[60,80]</option>
+
+      </single>
+    </panel>
+
+
+    <panel>
+      <title>Memoria %</title>
+      <single>
+
+        <search base="base_recent">
+          <query>
+search measurement="Cisco-IOS-XE-memory-oper:memory-statistics/memory-statistic"
+| eval total='fields.total_memory'
+| eval used='fields.used_memory'
+| where total&gt;0
+| eval memoria=(used*100)/total
+| bin _time span=1s
+| eventstats max(_time) as last_snapshot
+| where _time=last_snapshot
+| sort 0 - total
+| head 1
+| eval memoria=round(memoria,1)
+| table memoria
+          </query>
+        </search>
+
+        <option name="unit">%</option>
+        <option name="drilldown">none</option>
+        <option name="colorBy">value</option>
+        <option name="rangeValues">[70,85]</option>
+
+      </single>
+    </panel>
+
+  </row>
+
+
+
+  <!-- ====================================================== -->
+  <!-- WLC HISTORICO                                          -->
+  <!-- ====================================================== -->
+
+  <row>
+
+    <panel>
+      <title>Clientes conectados en el tiempo</title>
+
+      <chart>
+
+        <search base="base_wlc">
+          <query>
+search measurement="Cisco-IOS-XE-wireless-client-oper:client-oper-data/common-oper-data"
+| bin _time span=1s
+| stats count as clientes by _time
+| timechart span=15m latest(clientes) as Clientes
+          </query>
+        </search>
+
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">Clientes</option>
+
+      </chart>
+
+    </panel>
+
+
+    <panel>
+      <title>APs registrados en el tiempo</title>
+
+      <chart>
+
+        <search base="base_wlc">
+          <query>
+search measurement="Cisco-IOS-XE-wireless-access-point-oper:access-point-oper-data/capwap-data"
+| bin _time span=1s
+| stats count as aps by _time
+| timechart span=15m latest(aps) as APs
+          </query>
+        </search>
+
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">APs</option>
+
+      </chart>
+
+    </panel>
+
+  </row>
+
+
+
+  <!-- ====================================================== -->
+  <!-- CPU / MEMORY                                           -->
+  <!-- ====================================================== -->
+
+  <row>
+
+    <panel>
+      <title>CPU Utilization</title>
+
+      <chart>
+
+        <search base="base_wlc">
+          <query>
+search measurement="Cisco-IOS-XE-process-cpu-oper:cpu-usage/cpu-utilization"
+| eval cpu=coalesce('fields.cpu_utilization','fields.five_seconds')
+| where isnotnull(cpu)
+| timechart span=5m avg(cpu) as CPU
+          </query>
+        </search>
+
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">CPU %</option>
+        <option name="charting.axisY.maximumNumber">100</option>
+
+      </chart>
+
+    </panel>
+
+
+    <panel>
+      <title>Memory Utilization</title>
+
+      <chart>
+
+        <search base="base_wlc">
+          <query>
+search measurement="Cisco-IOS-XE-memory-oper:memory-statistics/memory-statistic"
+| eval total='fields.total_memory'
+| eval used='fields.used_memory'
+| where total&gt;0
+| eval memoria=(used*100)/total
+| bin _time span=1s
+| sort 0 _time - total
+| dedup _time
+| timechart span=5m latest(memoria) as Memoria
+          </query>
+        </search>
+
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">Memoria %</option>
+        <option name="charting.axisY.maximumNumber">100</option>
+
+      </chart>
+
+    </panel>
+
+  </row>
+
+
+
+  <!-- ====================================================== -->
+  <!-- CURWB HEADER                                           -->
+  <!-- ====================================================== -->
+
+  <row>
+
+    <panel>
+      <html>
+        <h2>CURWB / URWB</h2>
+        <p>Estado y calidad del Wireless Backhaul</p>
+      </html>
+    </panel>
+
+  </row>
+
+
+
+  <!-- ====================================================== -->
+  <!-- CURWB RESUMEN                                          -->
+  <!-- ====================================================== -->
+
+  <row>
+
+    <panel>
+      <title>CURWB RSSI actual</title>
+
+      <single>
+
+        <search base="base_curwb_recent">
+          <query>
+head 1
+| spath path=rx_stats{} output=rx
+| mvexpand rx
+| spath input=rx
+| stats avg(rssi_dbm) as RSSI
+| eval RSSI=round(RSSI,0)
+          </query>
+        </search>
+
+        <option name="unit"> dBm</option>
+        <option name="drilldown">none</option>
+
+      </single>
+    </panel>
+
+
+
+    <panel>
+      <title>CURWB Retry %</title>
+
+      <single>
+
+        <search base="base_curwb_recent">
+          <query>
+head 1
+| spath path=tx_stats{} output=tx
+| mvexpand tx
+| spath input=tx
+| eval retry_pct=if(sent_packets&gt;0,(retries/sent_packets)*100,0)
+| stats avg(retry_pct) as retry_pct
+| eval retry_pct=round(retry_pct,2)
+          </query>
+        </search>
+
+        <option name="unit">%</option>
+        <option name="drilldown">none</option>
+
+      </single>
+
+    </panel>
+
+
+
+    <panel>
+      <title>CURWB MCS actual</title>
+
+      <single>
+
+        <search base="base_curwb_recent">
+          <query>
+head 1
+| spath path=rx_stats{} output=rx
+| mvexpand rx
+| spath input=rx
+| stats avg(mcs) as MCS
+| eval MCS=round(MCS,1)
+          </query>
+        </search>
+
+        <option name="drilldown">none</option>
+
+      </single>
+
+    </panel>
+
+
+
+    <panel>
+      <title>CURWB Available Capacity</title>
+
+      <single>
+
+        <search base="base_curwb_recent">
+          <query>
+head 1
+| spath path=aggr_traffic{} output=traffic
+| mvexpand traffic
+| spath input=traffic
+| stats max(available_capacity) as Capacity
+          </query>
+        </search>
+
+        <option name="unit"> Kbps</option>
+        <option name="drilldown">none</option>
+
+      </single>
+
+    </panel>
+
+  </row>
+
+
+
+  <!-- ====================================================== -->
+  <!-- CURWB RSSI                                             -->
+  <!-- ====================================================== -->
+
+  <row>
+
+    <panel>
+      <title>CURWB RSSI por enlace</title>
+
+      <chart>
+
+        <search base="base_curwb">
+          <query>
+spath path=rx_stats{} output=rx
+| mvexpand rx
+| spath input=rx
+| eval enlace=src_ip." -&gt; ".dst_ip
+| timechart span=1m avg(rssi_dbm) as RSSI by enlace limit=20
+          </query>
+        </search>
+
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">RSSI dBm</option>
+        <option name="charting.legend.placement">bottom</option>
+
+      </chart>
+
+    </panel>
+
+
+
+    <panel>
+      <title>CURWB MCS por enlace</title>
+
+      <chart>
+
+        <search base="base_curwb">
+          <query>
+spath path=rx_stats{} output=rx
+| mvexpand rx
+| spath input=rx
+| eval enlace=src_ip." -&gt; ".dst_ip
+| timechart span=1m avg(mcs) as MCS by enlace limit=20
+          </query>
+        </search>
+
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">MCS</option>
+        <option name="charting.legend.placement">bottom</option>
+
+      </chart>
+
+    </panel>
+
+  </row>
+
+
+
+  <!-- ====================================================== -->
+  <!-- CURWB RETRIES / FAILED                                 -->
+  <!-- ====================================================== -->
+
+  <row>
+
+    <panel>
+      <title>CURWB Retransmisiones %</title>
+
+      <chart>
+
+        <search base="base_curwb">
+          <query>
+spath path=tx_stats{} output=tx
+| mvexpand tx
+| spath input=tx
+| eval enlace=src_ip." -&gt; ".dst_ip
+| eval retry_pct=if(sent_packets&gt;0,(retries/sent_packets)*100,0)
+| timechart span=1m avg(retry_pct) as Retry_Pct by enlace limit=20
+          </query>
+        </search>
+
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">Retries %</option>
+        <option name="charting.legend.placement">bottom</option>
+
+      </chart>
+
+    </panel>
+
+
+
+    <panel>
+      <title>CURWB Failed Packets</title>
+
+      <chart>
+
+        <search base="base_curwb">
+          <query>
+spath path=tx_stats{} output=tx
+| mvexpand tx
+| spath input=tx
+| eval enlace=src_ip." -&gt; ".dst_ip
+| timechart span=1m max(failed_packets) as Failed_Packets by enlace limit=20
+          </query>
+        </search>
+
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">Failed packets</option>
+
+      </chart>
+
+    </panel>
+
+  </row>
+
+
+
+  <!-- ====================================================== -->
+  <!-- CURWB TRAFFIC                                          -->
+  <!-- ====================================================== -->
+
+  <row>
+
+    <panel>
+      <title>CURWB WLAN Throughput</title>
+
+      <chart>
+
+        <search base="base_curwb">
+          <query>
+spath path=aggr_traffic{} output=traffic
+| mvexpand traffic
+| spath input=traffic
+| eval RX_Mbps=rx_wlan_kbps/1000
+| eval TX_Mbps=tx_wlan_kbps/1000
+| timechart span=1m avg(RX_Mbps) as RX_Mbps avg(TX_Mbps) as TX_Mbps
+          </query>
+        </search>
+
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">Mbps</option>
+        <option name="charting.legend.placement">bottom</option>
+
+      </chart>
+
+    </panel>
+
+
+
+    <panel>
+      <title>CURWB Available Capacity</title>
+
+      <chart>
+
+        <search base="base_curwb">
+          <query>
+spath path=aggr_traffic{} output=traffic
+| mvexpand traffic
+| spath input=traffic
+| eval Capacity_Mbps=available_capacity/1000
+| timechart span=1m avg(Capacity_Mbps) as Capacity_Mbps by radio limit=10
+          </query>
+        </search>
+
+        <option name="charting.chart">line</option>
+        <option name="charting.axisTitleY.text">Mbps</option>
+        <option name="charting.legend.placement">bottom</option>
+
+      </chart>
+
+    </panel>
+
+  </row>
+
+
+
+  <!-- ====================================================== -->
+  <!-- CURWB LINK TABLE                                       -->
+  <!-- ====================================================== -->
+
+  <row>
+
+    <panel>
+      <title>CURWB - Estado actual de enlaces</title>
+
+      <table>
+
+        <search base="base_curwb_recent">
+          <query>
+head 1
+| spath path=rx_stats{} output=rx
+| mvexpand rx
+| spath input=rx
+| eval Link=src_ip." -&gt; ".dst_ip
+| eval RSSI=rssi_dbm
+| eval MCS=mcs
+| eval NSS=nss
+| eval Width=channel_width_mhz
+| eval Type=rate_type
+| eval Age=age_ms
+| table Link RSSI MCS NSS Width Type Age
+| rename Width as "Width MHz" Type as "PHY" Age as "Age ms"
+          </query>
+        </search>
+
+        <option name="drilldown">none</option>
+        <option name="count">20</option>
+
+      </table>
+
+    </panel>
+
+  </row>
+
+
+
+  <!-- ====================================================== -->
+  <!-- CURWB TX TABLE                                         -->
+  <!-- ====================================================== -->
+
+  <row>
+
+    <panel>
+      <title>CURWB - Estadísticas TX</title>
+
+      <table>
+
+        <search base="base_curwb_recent">
+          <query>
+head 1
+| spath path=tx_stats{} output=tx
+| mvexpand tx
+| spath input=tx
+| eval Link=src_ip." -&gt; ".dst_ip
+| eval Retry_Pct=if(sent_packets&gt;0,round((retries/sent_packets)*100,2),0)
+| table Link sent_packets retries Retry_Pct failed_packets mcs nss channel_width_mhz
+| rename sent_packets as "TX Packets"
+         retries as "Retries"
+         Retry_Pct as "Retry %"
+         failed_packets as "Failed"
+         mcs as "MCS"
+         nss as "NSS"
+         channel_width_mhz as "Width MHz"
+          </query>
+        </search>
+
+        <option name="drilldown">none</option>
+        <option name="count">20</option>
+
+      </table>
+
+    </panel>
+
+  </row>
+
+
+
+  <!-- ====================================================== -->
+  <!-- CURWB RADIO TABLE                                      -->
+  <!-- ====================================================== -->
+
+  <row>
+
+    <panel>
+      <title>CURWB - Radios</title>
+
+      <table>
+
+        <search base="base_curwb_recent">
+          <query>
+head 1
+| spath path=radio_cfg{} output=radio_data
+| mvexpand radio_data
+| spath input=radio_data
+| table radio enabled he_enabled tx_power_dbm channel_width_mhz freq1_mhz freq2_mhz scanning
+| rename radio as "Radio"
+         enabled as "Enabled"
+         he_enabled as "802.11ax"
+         tx_power_dbm as "TX Power dBm"
+         channel_width_mhz as "Width MHz"
+         freq1_mhz as "Frequency MHz"
+         freq2_mhz as "Frequency 2 MHz"
+         scanning as "Scanning"
+          </query>
+        </search>
+
+        <option name="drilldown">none</option>
+        <option name="count">10</option>
+
+      </table>
+
+    </panel>
+
+  </row>
+
+
+
+  <!-- ====================================================== -->
+  <!-- TELEMETRY HEALTH                                      -->
+  <!-- ====================================================== -->
+
+  <row>
+
+    <panel>
+      <title>Telemetría WLC recibida</title>
+
+      <table>
+
+        <search base="base_wlc">
+          <query>
+stats count as Eventos latest(_time) as ultimo_evento by measurement
+| convert ctime(ultimo_evento)
+| rename ultimo_evento as "Último evento"
+| sort - Eventos
+          </query>
+        </search>
+
+        <option name="drilldown">none</option>
+        <option name="count">30</option>
+
+      </table>
+
+    </panel>
+
+
+
+    <panel>
+      <title>CURWB exporters</title>
+
+      <table>
+
+        <search base="base_curwb">
+          <query>
+stats count as Eventos latest(_time) as ultimo_evento latest(mesh_id) as Mesh_ID by host
+| convert ctime(ultimo_evento)
+| rename host as "CURWB Node"
+         ultimo_evento as "Último evento"
+| sort "CURWB Node"
+          </query>
+        </search>
+
+        <option name="drilldown">none</option>
+
+      </table>
+
+    </panel>
+
+  </row>
+
+</form>

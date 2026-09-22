@@ -17,7 +17,8 @@ Por eso el sintoma es exactamente ese y no otro:
 | Bateria, Temp, DDS vivo, Enviado hoy, Eventos | rotos | corren SPL, y SPL es lo que se apaga |
 | Camara frontal | **sigue andando** | es un `<img>` a Frigate, el browser lo baja directo y nunca toca Splunk |
 
-No hay una sola linea que arreglar en `dashboard-go2.xml`.
+No hay una sola linea que arreglar en el dashboard de entonces
+(hoy `dashboards/archive/2026-09-04-go2.xml`).
 
 **Lo que NO se perdio:** la ingesta sigue entrando. Verificado el 31/08:
 
@@ -73,6 +74,12 @@ Se acepto el trade-off a cambio de recuperar la vista hoy.
 > cambia el entorno a ella tambien: pierde su login y sus alertas. Avisarle antes.
 
 ### 2.1.b. Free tambien corta la API remota (descubierto al aplicarlo)
+
+> **SUPERADO el 2026-09-04** por la Partner NFR (§2.1.e). Verificado el 22/09: `:8089`
+> contesta `Unauthorized`, **no** *"Remote login disabled"*. O sea que `allowRemoteLogin`
+> volvio con Enterprise y la REST remota **esta abierta**: lo unico que falta son
+> credenciales de Splunk, que ya no es lo mismo que estar bloqueada. Lo de abajo es el
+> registro de la ventana 31/08 - 04/09, no el estado de hoy.
 
 Aplicado el 31/08. Ademas de lo de §2.1, aparecio algo que no estaba previsto: splunkd
 contesta a cualquier request remoto a `:8089` con
@@ -481,8 +488,9 @@ Atributos comunes a todos los tests, utiles como dimensiones:
 Para un test **Agent-to-Server** se suman `server.address`, `server.port`,
 `network.transport`, `error.type`.
 
-Los paneles nuevos de `dashboard-go2.xml` (filas 5 y 6) ya estan escritos contra estos
-nombres.
+Los paneles nuevos (filas 5 y 6 de lo que hoy es
+`dashboards/archive/2026-09-04-go2.xml`) ya estan escritos contra estos nombres. El
+dashboard vivo que los hereda es `dashboards/go2-telemetria-thousandeyes.xml`.
 
 ### 3.4. Costo de licencia
 

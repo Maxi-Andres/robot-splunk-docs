@@ -182,7 +182,7 @@ verdad cuando se escribió y ya no lo son.
 | Index + token HEC | Sin verificar. El token va a `~/.splunk_hec_token` en el robot, modo 600 |
 | Validación end-to-end | **Pendiente** — nunca se confirmó que lleguen eventos al índice `go2-robot-data`. Es el único paso que queda |
 | Abrir tcp/8088 hacia `10.1.254.0/24` en el firewall de HQ | Pendiente. Solo hace falta para el robot en campo: desde la LAN ya anda |
-| Dashboard | `dashboard-go2.xml` y `dashboard-go2-sin-video.xml` existen en este repo. Falta cargarlos y autorizar `http://192.168.20.99:5000` en *Dashboards Trusted Domains* |
+| Dashboard | **Cargados.** Los vivos están versionados en `dashboards/` (ver `dashboards/README.md`). Queda autorizar `http://192.168.20.99:5000` en *Dashboards Trusted Domains* |
 
 ### 3.3. Cosas descartadas (y por qué)
 

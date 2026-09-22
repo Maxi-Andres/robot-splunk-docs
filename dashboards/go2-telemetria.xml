@@ -125,7 +125,7 @@
              /opt/splunk/etc/apps/search/appserver/static/robot-go2.jpg
              Al ser mismo origen no necesita "Dashboards Trusted Domains" (a diferencia del
              MJPEG de Frigate del panel de al lado) y no depende de que la PC .20.99 esté
-             prendida. El original vive en dashboard-assets/robot-go2.jpg de este repo.
+             prendida. El original vive en dashboards/assets/robot-go2.jpg de este repo.
              Para reemplazarla: sobrescribir el archivo con el MISMO nombre y hacer un bump
              de la caché de estáticos -> http://192.168.20.200:8000/en-US/_bump -->
         <img src="/static/app/search/robot-go2.jpg" style="width:100%;max-height:420px;object-fit:contain;background:#000" alt="Unitree Go2, unidad 02, con antena Starlink y caja de electrónica"/>
