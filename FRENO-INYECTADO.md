@@ -285,7 +285,7 @@ Normalizado a comandos **por segundo**, porque las corridas duran distinto.
 | Cable, **pre-fix** | 4.93 / 16.97 ms | 6.3 ms | — | 5.5 | **99%** | 15 ms | no (pero el defecto estaba) |
 | Cable, **post-fix** | 4.29 / 51.83 ms | 6.3 ms | **42.5 / 89.0 Mbps** | **0.21** | **0** | ninguna | no |
 | LTE | (46 / 95 el 09-09) | | | | | | |
-| Starlink | | | | | | | |
+| Starlink (23-09, 13:30 ART) | 59.3 / 378.9 ms, **4% pérdida** | 178 ms mediana (239 media) | **2.62 / 4.39 Mbps** (con video encima) | pendiente | pendiente | pendiente | pendiente — falta teleop |
 
 ### 7.1. Capacidad sobre cable — medido el 2026-09-10
 
@@ -323,6 +323,50 @@ Cuatro cosas que salen de acá:
 > video solo entra si se lo capa.
 
 ---
+
+## 7.2. 2026-09-23 — el control pasa a UDP y el dead-man baja a 1 s (implementado, sin probar en el robot)
+
+Sobre Starlink el control tenía los mismos problemas que el video, y dos propios:
+
+1. **Cada comando abría una conexión TCP nueva** (`urllib`, sin keep-alive): dos RTT por
+   comando — por eso `/cmd` medía **178 ms de mediana (máx 556)** contra 59 del ping — y un SYN
+   perdido cuesta **1 s entero** antes de que TCP reintente.
+2. **El refresco del `move` era bloqueante**: POST, esperar, recién después contar los 0.4 s.
+3. **Un cambio de dirección esperaba al POST anterior** (`join(timeout=2.0)` sobre el hilo).
+
+**Lo que se hizo:**
+
+* **`move` por UDP** cada 100 ms, sin esperar respuesta (`RELAY_UDP_PORT`, en el executor y en
+  el `relay.env` del robot; apagado por defecto). Un datagrama perdido lo reemplaza el
+  siguiente.
+* **`stop_move` por los dos caminos**: 3 copias por UDP separadas 20 ms, **y** el POST de siempre.
+* **Los verbos discretos siguen por HTTP** (necesitan respuesta y reintento: eso es TCP).
+* **HMAC-SHA256 por datagrama** con el token del relay: el token no viaja (por HTTP sí, en
+  claro, en cada POST). Un datagrama inválido no recibe respuesta — no sirve para reflejar.
+* **Orden con `ts`** (reloj de HQ, estrictamente creciente) en UDP **y** en HTTP: un `move` más
+  viejo que el último comando o que un stop se descarta, llegue por donde llegue. Es la
+  carrera que el estándar nombra en §3, cerrada para los dos caminos.
+* **Vuelta a HTTP sola**: sin acks por 0.6 s → HTTP por 30 s y reintenta. Mientras UDP no está
+  *probado* (sin ack desde que se activó), cada `move` sale **también** por HTTP, para que un
+  UDP bloqueado no deje al robot sin refresco.
+* **Dead-man a 1000 ms** en los cuatro lugares que lo declaran (default del C++, unidad
+  systemd, `relay.env.example`, `/health`), con un test que los mantiene iguales. El refresco
+  por HTTP bajó de 0.4 a 0.25 s para seguir entrando en la ventana con un POST de Starlink.
+  **El `DURATION_S=0.4` del front no se tocó**: es un dead-man más estricto (si la página se
+  cuelga) y subirlo a 1 s haría menos seguro al robot.
+
+**Verificado sin robot**, con el `relay_server` real (HTTP + UDP) y el `RelayTransport` real en
+loopback — sólo `command_sender` simulado:
+
+| caso | cadencia en el robot | movimientos después del stop | `move` viejo reenviado |
+|---|---|---|---|
+| UDP sano | cada **100 ms** | **0** | rechazado |
+| UDP con **30% de pérdida** | hueco máx **300 ms** (dead-man: 1000) | **0** | rechazado |
+| UDP bloqueado | HTTP desde el primer comando, hueco máx 251 ms | **0** | rechazado |
+
+**Falta en el robot:** que el NAT deje ENTRAR UDP al `:8097` (el TCP al 8092 entra; el UDP
+nunca se probó en ese sentido — si no entra, el executor se queda en HTTP solo). Y repetir los
+pasos 4 y 5 del §7: sniffer con teleop real y manejarlo.
 
 ## 8. Cómo se midió — el sniffer
 

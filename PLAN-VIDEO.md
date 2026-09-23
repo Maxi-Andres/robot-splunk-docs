@@ -1240,6 +1240,51 @@ advertencia, volver y recargar.
 2. Emitirle a mediamtx un certificado **con SAN** (IP y nombre). Sigue siendo autofirmado, así
    que sigue necesitando una excepción por máquina — pero al menos se puede aceptar.
 
+### 6.i ✅ IMPLEMENTADO 2026-09-23, falta probarlo en el robot — la rama de manejo por UDP
+
+**El problema:** sobre Starlink la rama de manejo andaba bien de latencia (79 ms p50) pero **se
+cortaba cada tanto**: 10 congelamientos de 250-916 ms en 150 s, **todos del enlace**. Es TCP: un
+paquete perdido congela todo el stream hasta que se retransmite (`rto:252`, 4492 retrans en el
+socket), y BBR no está en el kernel del Jetson. Detalle en `MEDICIONES.md` 2026-09-23.
+
+**Por qué UDP y no otra perilla:** los cuadros son todo-intra, así que un cuadro perdido cuesta
+ESE cuadro y nada más — pero sólo si nadie lo espera. Medido con datagramas del mismo tamaño y
+cadencia (7 × 1200 B cada 70 ms, 60 s sobre Starlink): **3.43% de pérdida, 89.8% de cuadros
+enteros, +4.4% con un solo datagrama perdido** (lo que recupera una paridad), y el resto en
+rachas de 1-4 cuadros — **≤ ~280 ms, contra hasta 916 de congelamiento en TCP**.
+
+**Qué se hizo** (sólo cambia el tramo robot → HQ; backend y front NO se tocan):
+
+* **Robot** (`mjpeg_server.py`): `GET /h264?udp=PUERTO` es una **concesión**. Mientras esa
+  conexión TCP siga abierta, el robot manda cada cuadro por UDP **a la IP del par TCP** — no se
+  puede apuntar a un tercero. Fragmentos de 1200 B + una paridad XOR cada 8 (+12.5%). El cuerpo
+  TCP es un latido por segundo con la cuenta de cuadros enviados; `TCP_USER_TIMEOUT` de 10 s
+  cierra la concesión si HQ desaparece sin FIN. `/health` suma `h264_udp_leases` y
+  `h264_udp_send_drops`.
+* **HQ** (`h264_relay.py`): `UdpReassembler` rearma, recupera un fragmento por grupo con la
+  paridad, entrega el cuadro **en cuanto está completo** y sólo si es más nuevo que el último
+  mostrado. `UdpWatchdog` distingue *UDP bloqueado* (el robot manda y no llega nada → **vuelve
+  a TCP por 60 s** y reintenta) de *el enlace parpadeó* (→ concesión nueva).
+* **Apagado por defecto:** `H264_UDP_PORT` vacío en el `.env` del bridge = TCP como antes. Un
+  robot con el `mjpeg_server` viejo ignora `?udp=`, y el relay lo detecta y sigue por TCP.
+
+**Verificado sin robot:** 28 + 25 tests (vector de referencia idéntico en los dos repos, con
+mutaciones comprobadas: romper el recorte, el orden, los límites o el puerto los pone en rojo).
+Punta a punta en loopback con el servidor y el relay reales: **4% de pérdida inyectada → 95% de
+cuadros entregados, todos byte por byte, siempre en orden, 60 rescatados por la paridad**; UDP
+bloqueado → TCP en ~2 s; robot viejo → TCP de inmediato.
+
+**Falta, con el robot prendido:**
+
+1. Desplegar `robot/mjpeg_server.py` en el robot y reiniciar el video.
+2. `H264_UDP_PORT=8895` en `unitree_ros2/robot_camera_bridge/.env` y reiniciar el bridge.
+3. Repetir la medición de cortes del 2026-09-23 (`tests/video-bench/drive_probe.py 150`) **sobre el mismo
+   enlace** y compararla con los 10 cortes de TCP. Y manejarlo.
+
+> **Lo que NO arregla:** la pérdida sigue existiendo — se ve como cuadros salteados en vez de
+> congelamientos. Y sin control de congestión, si el enlace no alcanza, UDP pierde en vez de
+> encolar: el presupuesto de banda (QP) sigue siendo cosa nuestra.
+
 ## 7. Lo que no se resolvió
 
 - **El double free de `nvv4l2h264enc`** sigue sin causa. Descartados con medición: bitrate, CBR,

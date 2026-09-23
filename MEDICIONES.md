@@ -10,6 +10,122 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 
 ---
 
+## 2026-09-23 · 13:24–13:45 ART — primera batería completa sobre STARLINK
+
+**Enlace: Starlink, verificado** — `curl https://ipinfo.io/json` desde el robot:
+`AS14593 Space Exploration Technologies Corporation`, `customer.bnssarg1.isp.starlink.com`.
+Robot en `72fe7b2` (ya con el `RateGate`: pedir 10 fps entrega 9.94).
+
+Config: MJPEG 480x270 `quality=25` `fps_cap=10`; `/h264` todo-intra **QP36** 480x270;
+NVR por SRT `LATENCY=150`, `BITRATE=800000`, `NVR_FPS=15`. **Las tres ramas corriendo.**
+
+| | **Starlink hoy** | LTE bueno (16-09 tarde) | fijo (21-09) |
+|---|---|---|---|
+| ICMP (300 pings) min/medio/máx | **19.3 / 59.3 / 379 ms**, mdev 67 | 22.7 / 43.6 / 63.8 | 3.4 / 7.1 / 11.7 |
+| pérdida ICMP | **4%** | 0% | 0% |
+| RTT `/cmd` (10 `keepalive`) | **mediana 178, media 239, máx 556 ms** | — | 6.3 ms (cable) |
+| `iperf3` robot → HQ, **con el video encima** | **2.62 Mbps**, 108 retrans | 1.67 (+1.45 de video) | 41.5 |
+| `iperf3` HQ → robot | **4.39 Mbps**, 16 retrans | — | 89.0 (cable) |
+| **MJPEG** latencia captura → HQ | **~74 ms p50** (20 robot + 54), p95 ~225, máx 585 | 89 p50 | 23 |
+| MJPEG cuadros / banda / peso | 9.94 fps · 1.47 Mbps · **18 KB** | 14.31 · 0.77 · 6 KB | 7.12 · 0.55 · 9 KB |
+| **H.264 manejo** (`/ws/view-h264`, `X-Capture`) | **89 p50 · 356 p95 · 1034 máx** | — | 38 p50 · 40 p95 |
+| H.264 manejo cuadros / banda / peso | 14.23 fps · **2.52 Mbps** · **22 KB** | — | 14.3 · 0.61-0.69 · ~5 KB |
+| **SRT del NVR**, ventanas 30-60 s | **28-56% retrans, 45-666 descartes** | 7.5%, 8 descartes | 0 descartes |
+| **NVR llegando a HQ** | **2.46 fps**, huecos de hasta 1.3 s | 13.5-14.2 | 8.7 (gate viejo) |
+
+**Lectura:** el enlace no está saturado de latencia sino de **pérdida**. Las dos ramas por
+TCP (MJPEG y H.264 de manejo) sobreviven con p50 razonable y colas largas (p95 225-356 ms);
+la que se cae es **la que depende de UDP con presupuesto de 150 ms**: SRT no llega a
+retransmitir a tiempo sobre un RTT medio de 59 con picos de 379, y el NVR queda en 2.5 fps.
+
+**Presupuesto:** MJPEG 1.47 + H.264 manejo 2.52 + NVR ~0.5-0.9 = **~4.5-4.9 Mbps de
+video**, más los 2.62 que `iperf3` todavía pudo meter encima. Es un **piso** de ~7 Mbps de
+subida, no un techo, y es la primera vez que el video — y no el enlace — es lo que más
+ocupa: **las tres ramas a full sobre el mismo enlace, que es justo lo que no hay que hacer.**
+
+> ⚠️ **La escena de hoy es mucho más cara que la de las mediciones anteriores, y eso NO es
+> Starlink.** El JPEG pesa 18 KB (era 6-9) y el intra de QP36 pesa **22 KB** (era ~5). A QP
+> fijo la banda sigue a la escena: sin anotar dónde estaba mirando la cámara, la columna de
+> banda **no es comparable** entre filas. La de latencia y pérdida sí.
+
+> ⚠️ **No es "misma hora, mismo punto" que LTE** (ROADMAP §10): LTE se midió el 16-09 a la
+> tarde/noche, esto el 23-09 al mediodía. Para una comparación con las variables aisladas
+> hay que alternar LTE ↔ Starlink en la misma sesión.
+
+### ⚠️ Trampa encontrada: el offset de reloj de `field_probe.py` se rompe sobre Starlink
+
+La primera corrida del MJPEG dio **522 ms p50 / 1787 p95 de transporte**. Era el
+instrumento: la estimación del offset robot−HQ salió **+441 ms**, cuando el valor real es
+**+10 a +16 ms** (medido tres veces esta misma sesión, y coincide con el histórico +9/+11).
+Sobre este enlace **las muestras individuales de offset van de −8 a +1032 ms**, y la
+**mediana de 9** que usaba la herramienta cayó en la cola.
+
+Arreglado en `field_probe.py`: ahora toma **la muestra de menor RTT** de 21 (el error de
+una muestra está acotado por su RTT/2 — la regla de NTP). La segunda corrida, con el offset
+bueno, es la que va en la tabla. **Mismo patrón sin arreglar** en `yolo_cost.py:31` y
+`tests/_latency_probe.py:65`.
+
+> **Regla:** sobre un enlace con jitter, **mirar el offset antes de creer la latencia**. Un
+> offset fuera de +9/+16 ms es la herramienta, no la red.
+
+### 13:39–13:48 — sacar el MJPEG del enlace y bajar el H.264 de manejo a QP40
+
+Dos cambios **en vivo, sin persistir** (un reinicio los deshace):
+
+1. **MJPEG fuera:** bridge `POST /stop` + `/config {"robot":"test"}` en `:8091`
+   (`clients: 0` en el `:8093`). ⚠️ **Deja sin cuadros a YOLO y al VLM**, que comen del bridge;
+   la imagen de manejo pasa al transporte `intra` del front.
+2. **`h264_qp` 36 → 40**, por SSH a `127.0.0.1:8093/config` — el `:8093` ahora sólo acepta
+   localhost, y el `/video-config` del relay **todavía no deja pasar `h264_qp`** (acepta
+   `bitrate, fps, idr, maxfps, nvr, quality, width`).
+
+| | las 3 ramas, QP36 | sin MJPEG, QP36 | **sin MJPEG, QP40** |
+|---|---|---|---|
+| H.264 manejo, banda / peso | 2.52 Mbps · 22 KB | 2.34-2.61 · 22-23 KB | **0.86 Mbps · 7.6 KB** |
+| H.264 manejo, latencia p50 / p95 | 89 / 356 | 80-123 / 1185-2477 | **79 / 225 ms** |
+| H.264 manejo, cuadros | 14.23 | 13.50-14.03 | **14.05 fps** |
+| **NVR llegando a HQ** | 2.46 fps | 5.80 | **11.74 fps** |
+| SRT retrans / descartes por ventana | 28-56% · 45-666 | 45-56% · 104-640 | **4.8% · 27** (73 s) |
+
+**Sacar el MJPEG solo no alcanzó**: el que pesaba era el intra a QP36 sobre esta escena (22 KB
+por cuadro, más que el JPEG). **QP40 lo bajó a un tercio** y con eso el NVR se recuperó solo.
+
+### Los cortes que quedan son del enlace, y vienen en racimos de Starlink
+
+150 s de la rama de manejo con QP40: **10 cortes de más de 250 ms, los 10 del enlace** (la
+marca de captura avanza normal, 58-143 ms, mientras la llegada se frena 250-916 ms). **7
+de los 10 en 11 s** arrancando en el segundo :27, y otros en :57.2 y :27.6 — bordes del
+ciclo de reasignación de satélite de Starlink (cada 15 s, en :12/:27/:42/:57).
+
+El mecanismo: pérdida en ráfaga → TCP congela todo el stream hasta retransmitir.
+`ss -tin` del `/h264` en el robot: **cubic, `rto:252`, `retrans 0/4492`**, `dsack_dups 42`.
+**BBR no está disponible** en el kernel del Jetson (`available: reno cubic`, sin `tcp_bbr.ko`).
+TLP y RACK ya están activos (`tcp_early_retrans=3`, `tcp_recovery=1`).
+
+### 13:50 — cómo pierde Starlink los datagramas (la medición que decidió el diseño UDP)
+
+60 s de UDP robot → HQ `:8895`, **mismo tamaño y cadencia que la rama de manejo a QP40**
+(7 × 1200 B cada 70 ms, 854 cuadros, 5978 datagramas). UDP **pasa** del robot a HQ por un
+puerto nuevo sin tocar nada (el SRT ya lo sugería).
+
+| | |
+|---|---|
+| datagramas perdidos | **205 / 5978 = 3.43%** |
+| cuadros enteros | **89.8%** |
+| cuadros con UN solo datagrama perdido (los recupera una paridad) | **4.4%** |
+| cuadros irrecuperables | 5.7%, en rachas de **4, 3, 3, 2, 2, 2, 2, 1…** |
+
+**La pérdida viene en ráfagas**: una paridad por cuadro suma 4.4 puntos (→ ~94%), no más. Lo
+que cambia de fondo es la forma: la peor racha son 4 cuadros (~280 ms) **salteados**, contra
+916 ms **congelado** por TCP. Implementado ese día — `PLAN-VIDEO.md` §6.i.
+
+### Lo que NO se midió hoy
+
+Los pasos 4 y 5 del protocolo de `FRENO-INYECTADO.md` §7 — sniffer durante 30 s de teleop
+y **manejarlo para ver si se siente el tirón** — necesitan a alguien al joystick.
+
+---
+
 ## 2026-09-21 — los 92 Mbps del bus interno del Go2: qué son y si molestan
 
 El medidor del IR1101 marcaba **97.81 de 100 Mbps** en `Fa0/0/1` (VLAN 123, ROBOT-GO2) y la
