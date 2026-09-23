@@ -25,6 +25,359 @@
     </input>
   </fieldset>
 
+  <!-- ================================================================================
+       TOKENS DE LA TOPOLOGÍA VIVA (fila 0).
+       Mismo patrón que `go2-telemetria-thousandeyes.xml`: cada búsqueda deja un
+       `*_cls` (up / warn / down / nd) y un `*_txt`, y el SVG los usa como clase CSS y
+       como texto. `nd` = "sin datos" y pinta gris SIN animación, que es lo correcto
+       cuando el MX está dormido o una pata del pipeline todavía no está encendida —
+       un diagrama que anima en verde sobre cero eventos miente.
+       Cada búsqueda declara su `<done>` con la rama de resultCount==0, porque sin ella
+       los tokens quedan sin definir y el SVG muestra `$ap_cls$` literal en pantalla.
+       ================================================================================ -->
+
+  <!-- Dispositivos por tipo: AP (wireless), switch y appliance, en UNA búsqueda.
+       Tres nodos del diagrama salen de acá; hacerlo en tres búsquedas triplicaba el
+       costo del panel sin agregar nada. -->
+  <search>
+    <query>index=meraki networkName="$net$" sourcetype=meraki:api:device
+| stats latest(status) as st by serial productType
+| stats count(eval(st="online")) as up, count as tot by productType
+| stats sum(eval(if(productType="wireless",up,0))) as wup, sum(eval(if(productType="wireless",tot,0))) as wtot,
+        sum(eval(if(productType="switch",up,0))) as sup, sum(eval(if(productType="switch",tot,0))) as stot,
+        sum(eval(if(productType="appliance",up,0))) as aup, sum(eval(if(productType="appliance",tot,0))) as atot
+| eval ap_cls=case(wtot=0,"nd",wup=wtot,"up",wup=0,"down",true(),"warn"), ap_txt=if(wtot=0,"sin datos",wup." / ".wtot." online")
+| eval sw_cls=case(stot=0,"nd",sup=stot,"up",sup=0,"down",true(),"warn"), sw_txt=if(stot=0,"sin datos",sup." / ".stot." online")
+| eval mx_cls=case(atot=0,"nd",aup=atot,"up",aup=0,"down",true(),"warn"), mx_txt=if(atot=0,"sin datos",aup." / ".atot." online")
+| fields ap_cls ap_txt sw_cls sw_txt mx_cls mx_txt</query>
+    <earliest>$tr.earliest$</earliest>
+    <latest>$tr.latest$</latest>
+    <refresh>5m</refresh>
+    <refreshType>delay</refreshType>
+    <done>
+      <condition match="$job.resultCount$ == 0">
+        <set token="ap_cls">nd</set><set token="ap_txt">sin datos</set>
+        <set token="sw_cls">nd</set><set token="sw_txt">sin datos</set>
+        <set token="mx_cls">nd</set><set token="mx_txt">sin datos</set>
+      </condition>
+      <condition>
+        <set token="ap_cls">$result.ap_cls$</set><set token="ap_txt">$result.ap_txt$</set>
+        <set token="sw_cls">$result.sw_cls$</set><set token="sw_txt">$result.sw_txt$</set>
+        <set token="mx_cls">$result.mx_cls$</set><set token="mx_txt">$result.mx_txt$</set>
+      </condition>
+    </done>
+  </search>
+
+  <!-- Uplinks. El estado manda, pero la pérdida lo degrada: un uplink "active" con 5%
+       de pérdida NO es verde. Es la misma lección que el video sobre LTE — el enlace
+       puede estar arriba y ser inservible. -->
+  <search>
+    <query>index=meraki networkName="$net$" sourcetype=meraki:api:uplink
+| stats latest(status) as st, latest(lossPercent) as loss, latest(latencyMs) as lat by uplink
+| eval cls=case(st="active","up", st="ready","warn", st="failed","down", true(),"nd")
+| eval cls=case(isnotnull(loss) AND loss&gt;=5,"down", isnotnull(loss) AND loss&gt;=1,"warn", true(),cls)
+| eval txt=case(st="active","activo", st="ready","en espera", st="failed","caído", st="not connected","sin conectar", true(),"sin datos")
+| eval rtt=if(isnull(lat),"RTT —","RTT ".round(lat,0)." ms")
+| stats values(eval(if(uplink="wan1",cls,null()))) as w1_cls, values(eval(if(uplink="wan1",txt,null()))) as w1_txt, values(eval(if(uplink="wan1",rtt,null()))) as w1_rtt,
+        values(eval(if(uplink="wan2",cls,null()))) as w2_cls, values(eval(if(uplink="wan2",txt,null()))) as w2_txt, values(eval(if(uplink="wan2",rtt,null()))) as w2_rtt
+| eval w1_cls=coalesce(w1_cls,"nd"), w1_txt=coalesce(w1_txt,"sin datos"), w1_rtt=coalesce(w1_rtt,"RTT —")
+| eval w2_cls=coalesce(w2_cls,"nd"), w2_txt=coalesce(w2_txt,"sin datos"), w2_rtt=coalesce(w2_rtt,"RTT —")
+| fields w1_cls w1_txt w1_rtt w2_cls w2_txt w2_rtt</query>
+    <earliest>$tr.earliest$</earliest>
+    <latest>$tr.latest$</latest>
+    <refresh>5m</refresh>
+    <refreshType>delay</refreshType>
+    <done>
+      <condition match="$job.resultCount$ == 0">
+        <set token="w1_cls">nd</set><set token="w1_txt">sin datos</set><set token="w1_rtt">RTT —</set>
+        <set token="w2_cls">nd</set><set token="w2_txt">sin datos</set><set token="w2_rtt">RTT —</set>
+      </condition>
+      <condition>
+        <set token="w1_cls">$result.w1_cls$</set><set token="w1_txt">$result.w1_txt$</set><set token="w1_rtt">$result.w1_rtt$</set>
+        <set token="w2_cls">$result.w2_cls$</set><set token="w2_txt">$result.w2_txt$</set><set token="w2_rtt">$result.w2_rtt$</set>
+      </condition>
+    </done>
+  </search>
+
+  <!-- Clientes: el diagrama separa Wi-Fi de cableado porque son dos ramas distintas. -->
+  <search>
+    <query>index=meraki networkName="$net$" sourcetype=meraki:api:client
+| stats dc(eval(if(connectionType="wireless",mac,null()))) as wifi, dc(eval(if(connectionType!="wireless",mac,null()))) as cable, dc(mac) as tot
+| eval cli_cls=if(tot=0,"nd","up"), cli_txt=if(tot=0,"sin datos",tot." vistos")
+| eval cli_sub=if(tot=0,"—",wifi." Wi-Fi · ".cable." cable")
+| eval wifi_cls=if(wifi=0,"nd","up"), wifi_txt=if(wifi=0,"sin clientes",wifi." clientes")
+| eval wired_cls=if(cable=0,"nd","up"), wired_txt=if(cable=0,"sin clientes",cable." clientes")
+| fields cli_cls cli_txt cli_sub wifi_cls wifi_txt wired_cls wired_txt</query>
+    <earliest>$tr.earliest$</earliest>
+    <latest>$tr.latest$</latest>
+    <refresh>5m</refresh>
+    <refreshType>delay</refreshType>
+    <done>
+      <condition match="$job.resultCount$ == 0">
+        <set token="cli_cls">nd</set><set token="cli_txt">sin datos</set><set token="cli_sub">—</set>
+        <set token="wifi_cls">nd</set><set token="wifi_txt">sin datos</set>
+        <set token="wired_cls">nd</set><set token="wired_txt">sin datos</set>
+      </condition>
+      <condition>
+        <set token="cli_cls">$result.cli_cls$</set><set token="cli_txt">$result.cli_txt$</set><set token="cli_sub">$result.cli_sub$</set>
+        <set token="wifi_cls">$result.wifi_cls$</set><set token="wifi_txt">$result.wifi_txt$</set>
+        <set token="wired_cls">$result.wired_cls$</set><set token="wired_txt">$result.wired_txt$</set>
+      </condition>
+    </done>
+  </search>
+
+  <!-- Utilización de canal: el AP puede estar "online" y el aire saturado. -->
+  <search>
+    <query>index=meraki networkName="$net$" sourcetype=meraki:api:wireless
+| stats avg(utilizationTotal) as u
+| eval aputil_cls=case(isnull(u),"nd", u&gt;=60,"down", u&gt;=30,"warn", true(),"up")
+| eval aputil_txt=if(isnull(u),"canal —","canal ".round(u,0)."%")
+| fields aputil_cls aputil_txt</query>
+    <earliest>$tr.earliest$</earliest>
+    <latest>$tr.latest$</latest>
+    <refresh>5m</refresh>
+    <refreshType>delay</refreshType>
+    <done>
+      <condition match="$job.resultCount$ == 0">
+        <set token="aputil_cls">nd</set><set token="aputil_txt">canal —</set>
+      </condition>
+      <condition>
+        <set token="aputil_cls">$result.aputil_cls$</set><set token="aputil_txt">$result.aputil_txt$</set>
+      </condition>
+    </done>
+  </search>
+
+  <!-- Throughput: NO pinta un nodo, le pone VELOCIDAD a la animación del flujo. Es el
+       detalle que hace que el diagrama se lea de un vistazo: si los guiones corren, hay
+       tráfico; si se arrastran, no. Sin tráfico el flujo queda casi quieto (6 s). -->
+  <search>
+    <query>index=meraki networkName="$net$" sourcetype=meraki:api:uplinkusage
+| eval mbps=(sentBytes+receivedBytes)*8/1000000/intervalSec
+| stats avg(mbps) as m
+| eval m=coalesce(m,0)
+| eval flow_dur=case(m=0,"6", m&lt;1,"4.5", m&lt;10,"3", m&lt;50,"2", true(),"1.2")
+| eval thr_txt=if(m=0,"sin tráfico WAN",round(m,2)." Mbps")
+| fields flow_dur thr_txt</query>
+    <earliest>$tr.earliest$</earliest>
+    <latest>$tr.latest$</latest>
+    <refresh>5m</refresh>
+    <refreshType>delay</refreshType>
+    <done>
+      <condition match="$job.resultCount$ == 0">
+        <set token="flow_dur">6</set><set token="thr_txt">sin datos</set>
+      </condition>
+      <condition>
+        <set token="flow_dur">$result.flow_dur$</set><set token="thr_txt">$result.thr_txt$</set>
+      </condition>
+    </done>
+  </search>
+
+  <!-- Frescura del propio pipeline. El nodo "Meraki Cloud" no dice si Meraki anda: dice
+       si NUESTRO poller sigue trayendo datos. Un dashboard que se ve sano con datos de
+       ayer es peor que uno vacío, y esto es lo único del diagrama que lo delata.
+       SIN filtro de red a propósito: es salud del colector, no de una red. -->
+  <search>
+    <query>index=meraki sourcetype=meraki:api:*
+| stats max(_time) as t
+| eval age=now()-t
+| eval api_cls=case(isnull(t),"nd", age&lt;900,"up", age&lt;3600,"warn", true(),"down")
+| eval api_txt=case(isnull(t),"sin datos", age&lt;90,"hace instantes", age&lt;3600,"hace ".round(age/60,0)." min", true(),"hace ".round(age/3600,1)." h")
+| fields api_cls api_txt</query>
+    <earliest>-24h</earliest>
+    <latest>now</latest>
+    <refresh>5m</refresh>
+    <refreshType>delay</refreshType>
+    <done>
+      <condition match="$job.resultCount$ == 0">
+        <set token="api_cls">nd</set><set token="api_txt">sin datos</set>
+      </condition>
+      <condition>
+        <set token="api_cls">$result.api_cls$</set><set token="api_txt">$result.api_txt$</set>
+      </condition>
+    </done>
+  </search>
+
+  <!-- ============ FILA 0: topología viva ============ -->
+  <row>
+    <panel>
+      <html>
+        <div style="border-left:4px solid #53a051;padding:8px 14px;margin:6px 0;background:#1a1c20;">
+          <h2 style="margin:0;color:#dcdcdc;font-size:16px;">0 · Topología del HQ y estado de los enlaces</h2>
+          <div style="color:#9aa0a6;font-size:12px;">Clientes → MR46 / cableado → MS120 → MX68 → WAN1 · WAN2 → Internet → nube de Meraki · colores y flujo en vivo desde meraki:api:device, :uplink, :client, :wireless y :uplinkusage</div>
+        </div>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Topología en vivo — Silk HQ</title>
+      <html tokens="true">
+        <style>
+          #mkarch{background:#141619;border:1px solid #23262b;border-radius:6px;padding:8px 6px 2px 6px;}
+          #mkarch svg{width:100%;height:auto;display:block;}
+          #mkarch .nbox{fill:#1a1c20;stroke:#31353c;stroke-width:1.2;}
+          #mkarch .ntitle{fill:#e8eaed;font-family:Roboto,Arial,sans-serif;font-size:13px;font-weight:600;}
+          #mkarch .nsub{fill:#9aa0a6;font-family:Roboto,Arial,sans-serif;font-size:10.5px;}
+          #mkarch .nval{font-family:Roboto,Arial,sans-serif;font-size:11.5px;font-weight:600;}
+          #mkarch .lbl{fill:#9aa0a6;font-family:Roboto,Arial,sans-serif;font-size:10px;}
+          #mkarch .base{fill:none;stroke:#2b2f36;stroke-width:7;stroke-linecap:round;}
+          #mkarch .base.thick{stroke-width:11;}
+          #mkarch .flow{fill:none;stroke-width:3.4;stroke-linecap:round;stroke-dasharray:13 17;animation-name:mkdash;animation-timing-function:linear;animation-iteration-count:infinite;}
+          #mkarch .up{stroke:#53a051;color:#53a051;}
+          #mkarch .warn{stroke:#f2b827;color:#f2b827;}
+          #mkarch .down{stroke:#dc4e41;color:#dc4e41;}
+          #mkarch .nd{stroke:#5c636c;color:#879199;}
+          #mkarch text.up{fill:#53a051;stroke:none;}
+          #mkarch text.warn{fill:#f2b827;stroke:none;}
+          #mkarch text.down{fill:#dc4e41;stroke:none;}
+          #mkarch text.nd{fill:#879199;stroke:none;}
+          #mkarch circle.dot.up{fill:#53a051;stroke:none;}
+          #mkarch circle.dot.warn{fill:#f2b827;stroke:none;}
+          #mkarch circle.dot.down{fill:#dc4e41;stroke:none;}
+          #mkarch circle.dot.nd{fill:#5c636c;stroke:none;}
+          #mkarch circle.halo{fill:none;stroke-width:1.6;animation:mkpulse 2.4s ease-out infinite;}
+          #mkarch circle.halo.down{animation-duration:1s;}
+          #mkarch circle.halo.nd{animation:none;opacity:0;}
+          #mkarch .flow.up,#mkarch .flow.warn{filter:drop-shadow(0 0 3px currentColor);}
+          #mkarch .flow.down{animation-name:mkblink;animation-duration:1.1s !important;stroke-dasharray:5 9;}
+          #mkarch .flow.nd{animation:none;opacity:.4;stroke-dasharray:3 7;}
+          @keyframes mkdash{to{stroke-dashoffset:-300;}}
+          @keyframes mkblink{0%,100%{opacity:1;}50%{opacity:.16;}}
+          @keyframes mkpulse{0%{r:7;opacity:.85;}100%{r:15;opacity:0;}}
+          /* Quien pidió menos movimiento no debería tener que aguantar un diagrama que late. */
+          @media (prefers-reduced-motion: reduce){#mkarch .flow,#mkarch circle.halo{animation:none !important;}}
+        </style>
+        <div id="mkarch">
+          <svg viewBox="0 0 1620 430" role="img" aria-label="Topología del HQ de Silk sobre Meraki con el estado de cada enlace">
+
+            <!-- ENLACES: clientes hacia sus dos ramas -->
+            <path class="base" d="M164,198 C205,198 212,97 250,97"/>
+            <path class="flow $wifi_cls$" d="M164,198 C205,198 212,97 250,97" style="animation-duration:3.2s"/>
+            <path class="base" d="M164,232 C205,232 212,333 250,333"/>
+            <path class="flow $wired_cls$" d="M164,232 C205,232 212,333 250,333" style="animation-duration:3.2s"/>
+
+            <!-- ENLACES: las dos ramas convergen en el switch -->
+            <path class="base" d="M430,97 C466,97 470,178 500,192"/>
+            <path class="flow $ap_cls$" d="M430,97 C466,97 470,178 500,192" style="animation-duration:3.2s"/>
+            <path class="base" d="M430,333 C466,333 470,252 500,238"/>
+            <path class="flow $wired_cls$" d="M430,333 C466,333 470,252 500,238" style="animation-duration:3.2s"/>
+
+            <!-- ENLACE: switch al appliance -->
+            <path class="base thick" d="M670,215 H740"/>
+            <path class="flow $sw_cls$" d="M670,215 H740" style="animation-duration:2.6s"/>
+            <text class="lbl" x="705" y="200" text-anchor="middle">LAN</text>
+
+            <!-- ENLACES: los dos uplinks del MX -->
+            <path class="base" d="M920,185 C956,185 964,97 1000,97"/>
+            <path class="flow $w1_cls$" d="M920,185 C956,185 964,97 1000,97" style="animation-duration:$flow_dur$s"/>
+            <path class="base" d="M920,245 C956,245 964,333 1000,333"/>
+            <path class="flow $w2_cls$" d="M920,245 C956,245 964,333 1000,333" style="animation-duration:$flow_dur$s"/>
+
+            <!-- ENLACES: los uplinks hacia Internet -->
+            <path class="base" d="M1180,97 C1216,97 1224,160 1248,190"/>
+            <path class="flow $w1_cls$" d="M1180,97 C1216,97 1224,160 1248,190" style="animation-duration:$flow_dur$s"/>
+            <path class="base" d="M1180,333 C1216,333 1224,270 1248,240"/>
+            <path class="flow $w2_cls$" d="M1180,333 C1216,333 1224,270 1248,240" style="animation-duration:$flow_dur$s"/>
+
+            <!-- ENLACE: la nube de Meraki. Es el camino de CONTROL y de nuestros datos,
+                 no de tráfico de usuario, por eso es el único fino y lento. -->
+            <path class="base" d="M1354,215 H1420"/>
+            <path class="flow $api_cls$" d="M1354,215 H1420" style="animation-duration:2.2s"/>
+            <text class="lbl" x="1387" y="200" text-anchor="middle">API</text>
+
+            <!-- NODO: clientes -->
+            <rect class="nbox" x="14" y="176" width="150" height="78" rx="7"/>
+            <text class="ntitle" x="26" y="200">Clientes</text>
+            <text class="nsub" x="26" y="217">$cli_sub$</text>
+            <text class="nval $cli_cls$" x="26" y="238">$cli_txt$</text>
+            <circle class="dot $cli_cls$" cx="150" cy="188" r="4"/>
+            <circle class="halo $cli_cls$" cx="150" cy="188" stroke="currentColor"/>
+
+            <!-- NODO: Wi-Fi -->
+            <rect class="nbox" x="250" y="60" width="180" height="74" rx="7"/>
+            <text class="ntitle" x="264" y="85">Wi-Fi · MR46</text>
+            <text class="nsub" x="264" y="103">$wifi_txt$ · $aputil_txt$</text>
+            <text class="nval $ap_cls$" x="264" y="123">$ap_txt$</text>
+            <circle class="dot $aputil_cls$" cx="416" cy="74" r="4"/>
+            <circle class="halo $aputil_cls$" cx="416" cy="74" stroke="currentColor"/>
+
+            <!-- NODO: cableado -->
+            <rect class="nbox" x="250" y="296" width="180" height="74" rx="7"/>
+            <text class="ntitle" x="264" y="321">Cableado</text>
+            <text class="nsub" x="264" y="339">acceso por MS120</text>
+            <text class="nval $wired_cls$" x="264" y="359">$wired_txt$</text>
+
+            <!-- NODO: switch -->
+            <rect class="nbox" x="500" y="178" width="170" height="74" rx="7"/>
+            <text class="ntitle" x="514" y="203">MS120</text>
+            <text class="nsub" x="514" y="221">switch de acceso</text>
+            <text class="nval $sw_cls$" x="514" y="241">$sw_txt$</text>
+            <circle class="dot $sw_cls$" cx="656" cy="192" r="4"/>
+            <circle class="halo $sw_cls$" cx="656" cy="192" stroke="currentColor"/>
+
+            <!-- NODO: appliance -->
+            <rect class="nbox" x="740" y="155" width="180" height="120" rx="7"/>
+            <text class="ntitle" x="754" y="181">MX68</text>
+            <text class="nsub" x="754" y="199">security appliance</text>
+            <text class="nsub" x="754" y="221">salida a Internet</text>
+            <text class="nsub" x="754" y="239">firewall y VPN del sitio</text>
+            <text class="nval $mx_cls$" x="754" y="262">$mx_txt$</text>
+            <circle class="dot $mx_cls$" cx="906" cy="169" r="4"/>
+            <circle class="halo $mx_cls$" cx="906" cy="169" stroke="currentColor"/>
+
+            <!-- NODO: WAN 1 -->
+            <rect class="nbox" x="1000" y="60" width="180" height="74" rx="7"/>
+            <text class="ntitle" x="1014" y="85">WAN 1</text>
+            <text class="nsub" x="1014" y="103">uplink primario</text>
+            <text class="nval $w1_cls$" x="1014" y="123">$w1_txt$ · $w1_rtt$</text>
+
+            <!-- NODO: WAN 2 -->
+            <rect class="nbox" x="1000" y="296" width="180" height="74" rx="7"/>
+            <text class="ntitle" x="1014" y="321">WAN 2</text>
+            <text class="nsub" x="1014" y="339">uplink secundario</text>
+            <text class="nval $w2_cls$" x="1014" y="359">$w2_txt$ · $w2_rtt$</text>
+
+            <!-- NODO: Internet -->
+            <ellipse class="nbox" cx="1300" cy="215" rx="54" ry="38"/>
+            <text class="ntitle" x="1300" y="212" text-anchor="middle">Internet</text>
+            <text class="nsub" x="1300" y="229" text-anchor="middle">$thr_txt$</text>
+
+            <!-- NODO: la nube de Meraki, que es de donde salen TODOS estos datos -->
+            <rect class="nbox" x="1420" y="176" width="185" height="78" rx="7"/>
+            <text class="ntitle" x="1434" y="200">Meraki Cloud</text>
+            <text class="nsub" x="1434" y="217">API · poller cada 5 min</text>
+            <text class="nval $api_cls$" x="1434" y="238">$api_txt$</text>
+            <circle class="dot $api_cls$" cx="1591" cy="188" r="4"/>
+            <circle class="halo $api_cls$" cx="1591" cy="188" stroke="currentColor"/>
+
+            <!-- LEYENDA -->
+            <circle class="dot up" cx="24" cy="408" r="5"/>
+            <text class="lbl" x="36" y="412">activo</text>
+            <circle class="dot warn" cx="110" cy="408" r="5"/>
+            <text class="lbl" x="122" y="412">degradado</text>
+            <circle class="dot down" cx="216" cy="408" r="5"/>
+            <text class="lbl" x="228" y="412">caído</text>
+            <circle class="dot nd" cx="296" cy="408" r="5"/>
+            <text class="lbl" x="308" y="412">sin datos</text>
+            <text class="lbl" x="1606" y="412" text-anchor="end">El flujo va de los clientes hacia Internet y su velocidad sigue al tráfico real de los uplinks.</text>
+          </svg>
+        </div>
+      </html>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <div style="border-left:4px solid #53a051;padding:8px 14px;margin:6px 0;background:#1a1c20;">
+          <h2 style="margin:0;color:#dcdcdc;font-size:16px;">1 · Estado de un vistazo, inventario y WAN</h2>
+          <div style="color:#9aa0a6;font-size:12px;">Los KPI de arriba y el inventario salen de la API (respetan el filtro &quot;Red&quot;). Los dos gráficos de WAN cruzan throughput contra latencia y pérdida: un uplink puede estar arriba y ser inservible.</div>
+        </div>
+      </html>
+    </panel>
+  </row>
+
   <!-- ============ FILA 1: estado de un vistazo ============ -->
   <row>
     <panel>
@@ -227,6 +580,17 @@
     </panel>
   </row>
 
+  <row>
+    <panel>
+      <html>
+        <div style="border-left:4px solid #53a051;padding:8px 14px;margin:6px 0;background:#1a1c20;">
+          <h2 style="margin:0;color:#dcdcdc;font-size:16px;">2 · Seguridad y tráfico — desde el syslog</h2>
+          <div style="color:#9aa0a6;font-size:12px;">Todo lo de abajo viene del syslog crudo en udp/5515, NO de la API: no lleva nombre de red, así que el filtro de arriba no lo toca. Si estos paneles están vacíos es porque el syslog todavía no está configurado del lado de Meraki, y está bien.</div>
+        </div>
+      </html>
+    </panel>
+  </row>
+
   <!-- ============ FILA 4: seguridad y tráfico ============ -->
   <row>
     <panel>
@@ -362,6 +726,17 @@
     </panel>
   </row>
 
+  <row>
+    <panel>
+      <html>
+        <div style="border-left:4px solid #53a051;padding:8px 14px;margin:6px 0;background:#1a1c20;">
+          <h2 style="margin:0;color:#dcdcdc;font-size:16px;">3 · Clientes y wireless</h2>
+          <div style="color:#9aa0a6;font-size:12px;">Quién está conectado, por dónde y con qué aire. La utilización de canal es la que delata un AP que figura &quot;online&quot; con el espectro saturado.</div>
+        </div>
+      </html>
+    </panel>
+  </row>
+
   <!-- ============ FILA 5: clientes y wireless ============ -->
   <row>
     <panel>
@@ -464,6 +839,17 @@
     </panel>
   </row>
 
+  <row>
+    <panel>
+      <html>
+        <div style="border-left:4px solid #53a051;padding:8px 14px;margin:6px 0;background:#1a1c20;">
+          <h2 style="margin:0;color:#dcdcdc;font-size:16px;">4 · Capacidad y tendencia</h2>
+          <div style="color:#9aa0a6;font-size:12px;">Para dimensionar, no para alarmar: a qué hora se usa la red y qué la hace hablar.</div>
+        </div>
+      </html>
+    </panel>
+  </row>
+
   <!-- ============ FILA 6: capacidad y tendencia ============ -->
   <row>
     <panel>
@@ -505,6 +891,17 @@
         <option name="charting.legend.placement">bottom</option>
         <option name="charting.drilldown">none</option>
       </chart>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <html>
+        <div style="border-left:4px solid #53a051;padding:8px 14px;margin:6px 0;background:#1a1c20;">
+          <h2 style="margin:0;color:#dcdcdc;font-size:16px;">5 · Eventos</h2>
+          <div style="color:#9aa0a6;font-size:12px;">Lo último que pasó, y el crudo al final para cuando ningún panel explica lo que estás viendo.</div>
+        </div>
+      </html>
     </panel>
   </row>
 

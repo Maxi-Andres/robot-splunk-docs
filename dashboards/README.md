@@ -17,6 +17,36 @@ regla.
 | `go2-telemetria.xml` | Robot Go2 — Telemetría | Private |
 | `wlc9800-curwb.xml` | Cisco WLC 9800 + CURWB Telemetry Dashboard | Private |
 | `silk_hq_meraki.xml` | Silk HQ — Meraki | App |
+| `meraki-hq.xml` | Silk HQ — Meraki · Classic | Private |
+
+## La topología viva de `meraki-hq.xml` (23/09/2026)
+
+El classic de Meraki tenía los datos bien y la presentación plana. Se le trajo el lenguaje
+visual de `go2-telemetria-thousandeyes.xml`: **encabezados de sección** y, sobre todo, una
+**fila 0 con la topología en vivo** — clientes → MR46 / cableado → MS120 → MX68 → WAN1 · WAN2
+→ Internet → nube de Meraki.
+
+Cómo funciona, que es igual que en el del Go2: seis búsquedas a nivel dashboard dejan 25
+tokens, cada uno un `*_cls` (`up` / `warn` / `down` / `nd`) y un `*_txt`; el SVG usa el
+primero como clase CSS y el segundo como texto. **Esto NO se puede hacer en Dashboard Studio**
+— no tiene panel HTML, que es la misma razón por la que el panel de video del Go2 es Simple
+XML (ver `ROADMAP` §11).
+
+Tres decisiones que conviene no deshacer:
+
+- **`nd` pinta gris y NO anima.** Un diagrama que corre en verde sobre cero eventos miente, y
+  hoy hay motivos reales para tener huecos: el MX puede estar dormido, y syslog y webhooks
+  todavía no están configurados del lado de Meraki.
+- **La pérdida degrada al estado.** Un uplink `active` con 5% de pérdida sale rojo, no verde.
+  Es la misma lección que el video sobre LTE: el enlace puede estar arriba y ser inservible.
+- **El nodo `Meraki Cloud` no dice si Meraki anda: dice si NUESTRO poller sigue trayendo
+  datos** (`age` del último evento). Un dashboard que se ve sano con datos de ayer es peor que
+  uno vacío, y es lo único del diagrama que lo delata. Por eso su búsqueda no filtra por red.
+
+La velocidad de los guiones sigue al throughput real de los uplinks: si corren hay tráfico, si
+se arrastran no. Sin tráfico quedan casi quietos (6 s por vuelta).
+
+Se respeta `prefers-reduced-motion`: quien pidió menos movimiento no ve el diagrama latir.
 
 `silk_hq_meraki` es el único que conserva el nombre viejo con guiones bajos: está
 compartido a nivel App en una instancia que se usa entre varios, así que
