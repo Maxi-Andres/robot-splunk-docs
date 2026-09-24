@@ -10,6 +10,35 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 
 ---
 
+## 2026-09-23 · 15:14–15:19 ART — la rama de manejo y el control, YA POR UDP, sobre Starlink
+
+**Enlace: Starlink** (`AS14593`), ping 50 × 0.2 s: **19.6 / 33.2 / 150.9 ms, 0% de pérdida** —
+mejor que el de la mañana (59 / 379, 4%), así que **la comparación con TCP no es limpia**.
+Robot en `101b0fc` / `d5b8d2b`, QP 40, MJPEG fuera del enlace (`CAMERA_ROBOT=test`).
+
+**Control:** un `stop` por el executor → **3 datagramas aceptados** en el relay, **0 rechazos**
+por MAC y 0 por reloj. El NAT deja ENTRAR UDP al `:8097`, el HMAC coincide y los relojes están
+dentro de la ventana. Falta medirlo con teleop real.
+
+**Video**, `drive_probe.py 150`:
+
+| | TCP (13:46, QP 40) | **UDP (15:16, QP 40)** |
+|---|---|---|
+| cuadros | 14.05 fps | 13.46 fps (los perdidos no se reenvían) |
+| latencia p50 / p95 / máx | 79 / 225 / 492 ms | **79 / 105 / 283 ms** |
+| **cortes "held"** (el cuadro existía y se trabó en el camino) | **10**, de 250-916 ms | **1**, de 258 ms |
+| cortes "missing" (el cuadro no llegó) | 0 | 6, de 275-894 ms |
+
+**La cola de latencia se fue** (p95 225 → 105): ya no hay cuadros esperando retransmisiones.
+Los 6 "missing" son cuadros que no llegaron; el peor (894 ms, ~12 cuadros seguidos) es un
+corte del enlace que por TCP también habría congelado. ⚠️ Sobre UDP este probe **no distingue**
+un cuadro perdido de uno que la cámara no produjo — ver el docstring de `drive_probe.py`.
+
+⚠️ **El dead-man del robot sigue en 1500**: el `relay.env` del robot tiene `DEADMAN_MS=1500`
+y `/health` lo confirma. Falta editarlo y reiniciar el relay.
+
+---
+
 ## 2026-09-23 · 13:24–13:45 ART — primera batería completa sobre STARLINK
 
 **Enlace: Starlink, verificado** — `curl https://ipinfo.io/json` desde el robot:
