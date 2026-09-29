@@ -1,8 +1,7 @@
 # Agente ThousandEyes en el G1 — runbook
 
-**Escrito el 2026-09-29. Nada de esto está ejecutado todavía:** los dos robots estaban
-apagados. Es el plan para replicar en el G1 lo que ya corre en el Go2, y el primer paso es
-**mirar el Go2 prendido**, no adivinar cómo se instaló.
+**Escrito el 2026-09-29.** El §1 (relevar el Go2) está **hecho** ese mismo día; la
+instalación en el G1 (§2 en adelante) **no**. El comando de §3 ya es la copia real del Go2.
 
 Lo que alimenta: la sección 2 y tres enlaces de la topología de
 `dashboards/g1-telemetria-thousandeyes.xml`.
@@ -64,7 +63,32 @@ ls -la /var/docker/thousandeyes/ /var/docker/configs/ 2>/dev/null
 > Enterprise Agents → Agent Settings → Add New Enterprise Agent → Docker*) o del mismo env del
 > Go2 **a mano**, y no se pega en ningún archivo del repo ni en un comentario.
 
-Anotar el resultado en la §4 de este archivo con fecha.
+### 1.1. Lo que dio — relevado el 2026-09-29 con el Go2 en LTE
+
+| | Go2 (`go2-jetson-01`) |
+|---|---|
+| Imagen | `thousandeyes/enterprise-agent:latest-agent` (72.3 MB, bajada hace ~6 semanas) |
+| Docker | server **24.0.5** |
+| Hostname / nombre | `go2-jetson-01` / `go2-jetson-01` |
+| Red | **`default` (bridge)** → el agente se ve como `172.17.0.2` |
+| Reinicio | `unless-stopped` |
+| Memoria | `--memory 2g --memory-swap 2g`, `--shm-size 512M`, `--tty` |
+| Capabilities | **`NET_ADMIN SYS_ADMIN`** — sin `NET_RAW` |
+| Seguridad | **ninguna** `--security-opt`. `/var/docker/configs/te-seccomp.json` y `te-apparmor.cfg` existen en disco pero **no se aplican** |
+| Volúmenes | `/opt/thousandeyes/go2-jetson-01/te-agent:/var/lib/te-agent` · `/opt/thousandeyes/go2-jetson-01/log/:/var/log/agent` — **sin** browserbot |
+| Comando | entrypoint `/sbin/tini --`, cmd `/sbin/my_init` (los de la imagen) |
+| Variables que setea | `TEAGENT_ACCOUNT_TOKEN`, `TEAGENT_INET`, más las de proxy/NTP/repo de la imagen |
+
+Según la API, ese mismo día: **online**, IP pública `186.143.197.186`, red **Telefónica de
+Argentina (AS 22927)** — o sea salía por el LTE, no por Starlink.
+
+> ⚠️ **La red `bridge` tiene un costo que conviene NO copiar al G1.** TE registra
+> `targetForTests = 172.17.0.2`, la IP interna de Docker. Cualquier test que tenga al robot
+> como **destino** (agent-to-agent hacia el robot) apunta a una dirección que no existe
+> fuera del Jetson. Los tests del Go2 funcionan porque todos salen **desde** el robot. Para el
+> G1 la recomendación es `--network host`: el agente queda con la IP real de PC2, puede ser
+> destino, y mide por la misma interfaz que el resto del robot. Es la única diferencia
+> deliberada con el Go2.
 
 ---
 
@@ -102,25 +126,32 @@ Si no hay Docker: instalar `docker.io` desde apt (20.04 lo trae) — confirmar p
 
 ## 3. Instalar
 
-Plantilla. **Reemplazar cada flag por lo que dio la §1** — lo de abajo es la forma del
-comando oficial de TE, no lo que corre en el Go2.
+Copia del Go2 (§1.1), con **una** diferencia deliberada: `--network host`.
 
 ```bash
 NAME=g1-jetson-01
-sudo mkdir -p /var/docker/thousandeyes/$NAME/{te-agent,te-browserbot,log}
+sudo mkdir -p /opt/thousandeyes/$NAME/{te-agent,log}
 read -rs -p 'TE account token: ' TOKEN; echo
 
 sudo docker run -d --name "$NAME" --hostname "$NAME" \
+  --network host \
   --restart unless-stopped --tty \
   --memory 2g --memory-swap 2g --shm-size 512M \
-  --cap-add NET_ADMIN --cap-add NET_RAW --cap-add SYS_ADMIN \
+  --cap-add NET_ADMIN --cap-add SYS_ADMIN \
   -e TEAGENT_ACCOUNT_TOKEN="$TOKEN" -e TEAGENT_INET=4 \
-  -v /var/docker/thousandeyes/$NAME/te-agent:/var/lib/te-agent \
-  -v /var/docker/thousandeyes/$NAME/te-browserbot:/var/lib/te-browserbot \
-  -v /var/docker/thousandeyes/$NAME/log:/var/log/agent \
-  thousandeyes/enterprise-agent /sbin/my_init
+  -v /opt/thousandeyes/$NAME/te-agent:/var/lib/te-agent \
+  -v /opt/thousandeyes/$NAME/log/:/var/log/agent \
+  thousandeyes/enterprise-agent:latest-agent /sbin/my_init
 unset TOKEN
 ```
+
+`TEAGENT_INET=4` es la variable que el Go2 tiene seteada; su valor no se leyó (el comando de
+§1 imprime solo los nombres). `4` es el valor de la guía de TE para IPv4 — confirmarlo con
+`docker exec go2-jetson-01 printenv TEAGENT_INET` si hace falta.
+
+Con `--network host` y `--hostname` juntos Docker ignora el hostname y usa el del host; el
+nombre que ve TE sale del enrolamiento igual, pero si aparece como `ubuntu`, renombrarlo en
+la UI a `g1-jetson-01`.
 
 El nombre `g1-jetson-01` no es decorativo: es el valor del token `te_agent` del dashboard.
 Si se enrola con otro, se cambia en **un** lugar, el `<init>` del XML.
