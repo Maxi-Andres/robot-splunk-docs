@@ -19,6 +19,38 @@ regla.
 | `silk_hq_meraki.xml` | Silk HQ — Meraki | App |
 | `meraki-hq.xml` | Silk HQ — Meraki · Classic | Private |
 
+## Versionados, todavía NO en Splunk
+
+| Archivo / vista | Título en la UI | Qué falta |
+|---|---|---|
+| `g1-telemetria-thousandeyes.xml` | Robot G1 Pro — Telemetría y ThousandEyes | subirlo; y casi todo lo que lo alimenta (abajo) |
+
+## El tablero del G1 (29/09/2026)
+
+Hermano del del Go2, con el mismo lenguaje visual: topología viva con tokens `*_cls` /
+`*_txt`, singles de telemetría, foto + cámara, motores sobre la imagen del robot, y
+ThousandEyes filtrado por un único token `te_agent`. Lo que cambia sale de `ROADMAP` §1:
+
+- **Sin sección IR1101.** El G1 no tiene router ni túnel; vive en el sitio sobre CURWB. La
+  sección 3 es el **enlace CURWB** (`index=wlc9800`, `cisco:urwb:telemetry`), con las mismas
+  fórmulas que `wlc9800-curwb.xml`, filtrable por el token `curwb_host`.
+- **El aire lleva una advertencia fija:** CURWB sin validar con el cable desenchufado. Verde
+  ahí no prueba nada mientras el cable siga puesto.
+- **Motores: 29 articulaciones** en cinco grupos. El panel se dibuja en gris con "—" cuando no
+  hay datos, en vez de ocultarse.
+- **Imágenes:** `assets/robot-g1-render.webp` (3/4) y `assets/robot-g1-frente.webp` (frente,
+  la de los motores) son **renders del modelo oficial `g1_29dof_rev_1_0`**, no fotos de la
+  unidad. Los puntos de las articulaciones se proyectaron desde el modelo. Van embebidos en
+  base64 como las del Go2.
+- Las búsquedas de la topología usan ventanas fijas cortas (`-5m`, `-10m`, `-15m`), no el
+  selector de rango: un robot que dejó de mandar tiene que ponerse gris, no quedar verde con
+  el último valor.
+
+Hoy casi todo está en gris y es correcto: **no existe** `index=g1-robot-data`, ni el agente
+`g1-jetson-01`, ni los tests `G1 - …`, ni la cámara `g1` en Frigate. El plan y el contrato
+de datos están en `ROADMAP` §6.5 (`.claude/roadmap/G1.md`); el agente, en
+`../TE-AGENTE-G1.md`.
+
 ## La topología viva de `meraki-hq.xml` (23/09/2026)
 
 El classic de Meraki tenía los datos bien y la presentación plana. Se le trajo el lenguaje
