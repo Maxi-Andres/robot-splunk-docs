@@ -1,7 +1,8 @@
 # Agente ThousandEyes en el G1 — runbook
 
-**Escrito el 2026-09-29.** El §1 (relevar el Go2) está **hecho** ese mismo día; la
-instalación en el G1 (§2 en adelante) **no**. El comando de §3 ya es la copia real del Go2.
+**Escrito el 2026-09-29.** El §1 (relevar el Go2) y la instalación (§2-§4) están **hechos**
+ese mismo día: `g1-jetson-01` quedó **online**, agent id `562949953441239`, con el G1 por
+cable. Faltan los tests (§5).
 
 Lo que alimenta: la sección 2 y tres enlaces de la topología de
 `dashboards/g1-telemetria-thousandeyes.xml`.
@@ -176,6 +177,22 @@ El panel *Agente ThousandEyes del robot* del tablero del G1 pasa de `NO ENROLADO
 
 ---
 
+### 4.1. Cómo salió — 2026-09-29
+
+- **Instalado con `~/install-te-agent.sh` en PC2** (el comando de §3, con `--replace` para
+  recrear el contenedor). Lo corrió el usuario: pide el token y el `sudo` sin eco.
+- **Primer intento: `Invalid account token provided`** en `/opt/thousandeyes/g1-jetson-01/log/te-agent.warn`.
+  El síntoma en `te-agent.log` no lo dice: solo alterna entre `registry.agt.thousandeyes.com`
+  y `sc1.thousandeyes.com` cada 30 s. **Mirar el `.warn`, no el `.log`.** El token bueno es el
+  *Account Group Token*, no el bearer de la API que usa `te-poller`.
+- **Resultado:** online, IPs `192.168.123.164` + `192.168.51.115` (la red `host` funcionó y el
+  hostname `g1-jetson-01` se respetó igual), IP pública `201.216.197.74` (NSS, la de HQ).
+- **Antes de instalar, el cable no ruteaba:** el gateway `192.168.123.1` contestaba ARP pero
+  nada de L3, y como la default por `eth0` (métrica 20100) le gana a la de `wlan0` (20600),
+  el Jetson quedaba **sin salida por ningún lado**. El usuario lo corrigió del lado de la red;
+  después: gateway 0.3 ms, HQ 0.4-0.5 ms, internet 2.7 ms. Si vuelve a pasar, el agente
+  aparece offline y la causa no está en el robot.
+
 ## 5. Los tests del G1
 
 Mismos nombres que espera el dashboard (`<init>` de `g1-telemetria-thousandeyes.xml`). Si se
@@ -199,6 +216,43 @@ Crear los tests es un cambio en la org de TE: se hace desde la UI o con un `POST
 `/tests/agent-to-agent` y `/tests/agent-to-server`, **cuando el agente ya exista**.
 
 ---
+
+### 5.1. Bloqueado por cuota — 2026-09-29
+
+Los tres `POST` fallaron con **`You have reached your usage limit`** (HTTP 400). No es el
+formato: un primer intento había fallado por otra cosa — `server` tiene que ir **solo con el
+host** y el puerto en `port`, aunque el `GET` los muestre juntos como `192.168.20.200:8088` —
+y corregido eso, la respuesta pasó a ser la de cuota. El token de `te-poller` **no puede ver
+el consumo** (`/v7/usage` da 403), así que cuánto falta no se sabe desde acá.
+
+Activos en ese momento: **10 tests de red**, 9 de ellos del Go2 (A1, A2, B1, B2, B3, C1, C2,
+C4, D1) y `HUESOS-TO-EDGE`, más 2 BGP. Hace falta liberar unidades o ampliar la cuota —
+decisión de quien administra la org — antes de crear A1, B3 y C1 del G1. Los cuerpos de los
+tres `POST` ya probados están en el historial de la sesión del 2026-09-29; los parámetros son
+los de la tabla de arriba, copiados de los tests equivalentes del Go2.
+
+**Se pausaron los 9 tests del Go2 para hacer lugar (2026-09-29, pedido del usuario) y NO
+alcanzó:** los tres `POST` del G1 siguieron dando `usage limit`. Lo coherente con eso es que
+el límite sea de unidades **ya consumidas** en el período, que pausar no devuelve. Los del Go2
+quedaron **pausados** — para reactivarlos, `PUT /v7/tests/<tipo>/<id>` con `{"enabled":true}`.
+
+> 🛑 **Y reactivarlos TAMBIÉN está bloqueado por la cuota.** Probado el mismo 2026-09-29: los 9
+> `PUT {"enabled":true}` dieron `usage limit`. Con la cuota agotada, **pausar un test es un
+> viaje de ida** hasta que se amplíe la cuota o empiece el período siguiente. No volver a
+> pausar para "hacer lugar" sin confirmar antes cómo se mide el límite. Hasta entonces el
+> dashboard del Go2 no tiene datos de TE.
+
+| Tipo | ID | Test |
+|---|---|---|
+| agent-to-agent | `562949953685468` | Go2 - A1 - Jetson a IR1101 (interno) |
+| agent-to-agent | `562949953685625` | Go2 - A2 - Throughput Fa0/0/1 |
+| agent-to-agent | `562949953685470` | Go2 - B1 - WAN desde IR1101 |
+| agent-to-agent | `562949953685626` | Go2 - B2 - WAN desde Jetson |
+| agent-to-server | `562949953685637` | Go2 - B3 - Camino a Splunk |
+| agent-to-server | `562949953685638` | Go2 - C1 - robot_executor 8090 |
+| agent-to-server | `562949953685639` | Go2 - C2 - camera_bridge 8091 |
+| agent-to-server | `562949953685640` | Go2 - C4 - Telemetria HEC 8088 |
+| agent-to-server | `562949953685641` | Go2 - D1 - Relay de comandos 8092 |
 
 ## 6. Lo que esta instalación NO resuelve
 

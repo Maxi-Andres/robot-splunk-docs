@@ -21,6 +21,7 @@ antes.
 
 | Si querés saber… | Leé |
 |---|---|
+| **Qué código corre en el Go2, cuál en el G1, y cuál es compartido** | **`QUE-CORRE-EN-CADA-ROBOT.md`** — incluye la convención de nombres `go2_*` / `g1_*` |
 | **Qué hay que hacer y en qué orden** | **`~/Desktop/.claude/ROADMAP.md`** — la fuente de la verdad, para todo el workspace. Los documentos de acá son el *por qué*, no el *qué* |
 | Por qué el DDS no se puede leer desde otra subred, y por qué los dos robots no pueden convivir en un segmento | **`RED-Y-DDS.md`** — el documento fundacional, el más citado |
 | El diagnóstico del video: las tres restricciones medidas y el síntoma abierto | **`ESTADO-Y-CONTINUACION.md`** — traspaso del 2026-08-20. Su §7 quedó absorbida en ROADMAP.md §5.2 |
