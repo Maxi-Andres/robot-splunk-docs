@@ -781,7 +781,7 @@
         <search>
           <query>index=g1-robot-data sourcetype=robot:vitals
 | eval mt='temp.motor_max', bt='temp.bms_max', it='imu.temp'
-| timechart span=1m max(mt) as "Motor máx", max(bt) as "Batería máx", avg(it) as "IMU"</query>
+| timechart span=1m max(mt) as "Motor máx", max(bt) as "Batería máx", avg(it) as "Sensor IMU (no es motor)"</query>
           <refresh>30s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
