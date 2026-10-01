@@ -633,7 +633,7 @@
              straight from Frigate, so it costs ZERO Splunk licence.
              REQUIRED ONCE: add http://192.168.20.99:5000 under
              Settings -> Server settings -> Dashboards Trusted Domains. -->
-        <img src="http://192.168.20.99:5000/api/robot?fps=5&amp;h=480" style="width:100%;max-height:700px;object-fit:contain;background:#000" alt="Cámara del robot"/>
+        <img src="http://192.168.20.99:5000/api/go2?fps=5&amp;h=480" style="width:100%;max-height:700px;object-fit:contain;background:#000" alt="Cámara del robot"/>
         <p style="margin:8px 0 0">
           <a href="http://192.168.20.99:8889/robot" target="_blank">WebRTC (mínima latencia)</a>
            · 

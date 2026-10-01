@@ -20,9 +20,9 @@ de cada repo. **Una sola variable elige el binario; todo lo que viene después d
 compartido.** Si un repo necesita otra cosa además de `ROBOT_MODEL` para distinguir el robot,
 está mal diseñado.
 
-> ⚠️ **Deuda de nombres, a saldar cuando se escriba la variante del G1:**
-> `robot-command-relay/src/command_sender.cpp` es **del Go2** aunque no tenga prefijo.
-> El video ya no tiene deuda: `robot-video-pipeline/robot/` resultó **compartido** — el G1 lee
+> ✅ **Sin deuda de nombres desde 2026-10-01.** `command_sender.cpp` pasó a
+> `go2_command_sender.cpp` cuando se escribió el del G1, y el relay se niega a arrancar si
+> `SENDER_BIN` todavía apunta al binario viejo. El video tampoco tiene deuda: `robot-video-pipeline/robot/` resultó **compartido** — el G1 lee
 > su cámara por el mismo videohub de Unitree — y `go2_jpeg_stream` se renombró a
 > **`videohub_jpeg_stream`** (2026-10-01) porque corre en los dos. No se renombraron todavía porque hoy no hay otra
 > variante con la que confundirlos, y renombrar sin tener la del G1 solo mueve el problema.
@@ -65,8 +65,9 @@ Estado al 2026-09-30. ✅ corriendo · 🟡 escrito, sin desplegar · ❌ falta.
 
 | Pieza | Go2 | G1 |
 |---|---|---|
-| Servidor HTTP | ✅ `relay_server.py` | ❌ el mismo archivo, falta desplegarlo |
-| Sender DDS | ✅ `src/command_sender.cpp` — `go2::SportClient` | ❌ falta la variante con `g1::LocoClient` |
+| Servidor HTTP | ✅ `relay_server.py` (`ROBOT_MODEL=go2`) | 🟡 el mismo archivo con `ROBOT_MODEL=g1` — escrito, falta desplegarlo |
+| Núcleo de seguridad | `src/sender_core.hpp` (compartido): allowlist, clamp, hombre muerto, EOF frena | el mismo |
+| Sender DDS | ✅ `src/go2_command_sender.cpp` — `go2::SportClient` (era `command_sender.cpp`) | 🟡 `src/g1_command_sender.cpp` — `g1::LocoClient` con los FSM **medidos en este robot** |
 | Failover de salida | — (lo resuelve el IR1101) | ✅ `host/g1/uplink-failover.sh` + `.service` |
 
 El failover vive en este repo porque el relay es lo que más depende del enlace: si la salida
@@ -81,7 +82,7 @@ host del G1, no del relay — por eso `host/g1/` y no `src/`.
 | Encode + push | ✅ `robot/run-video.sh` → SRT `:8891` | 🟡 el mismo `run-video.sh` → SRT `:8893` |
 | Configuración | `robot/video.env` desde `video.env.example` | `robot/video.env` desde **`video.g1.env.example`** (7 claves distintas) |
 | Vista de manejo | ✅ `robot/mjpeg_server.py` `:8093` | 🟡 el mismo, `:8093` |
-| Camino en mediamtx / Frigate | `robot` / `robot` | ✅ `g1` / `g1` — HQ armado 2026-10-01 |
+| Camino en mediamtx / cámara de Frigate | `robot` / `go2` | ✅ `g1` / `g1` — HQ armado 2026-10-01 |
 
 > **La RealSense directa por V4L2** (`SOURCE=realsense`) **no se hizo**: en el G1 la cámara la
 > tiene el `videohub_pc4` de Unitree (`/dev/video4` "busy"), y abrirla rompería su video. Sí
@@ -103,7 +104,7 @@ host del G1, no del relay — por eso `host/g1/` y no `src/`.
 |---|---|
 | `mediamtx` | caminos `robot` (Go2) y `g1` |
 | `srt-bridge` / `srt-bridge-g1` | Go2 `:8891` → `udp:9000`; G1 `:8893` → `udp:9001` (unit de usuario en esta PC) |
-| Frigate | cámaras `robot` y `g1` |
+| Frigate | cámaras **`go2`** y **`g1`** (la del Go2 se llamaba `robot` hasta 2026-10-01; su camino de mediamtx sigue siendo `robot`) |
 | `te-poller` | trae los dos agentes TE sin configuración: es por métrica, no por agente |
 | Dashboards (Splunk `.20.200`) | `go2-telemetria-thousandeyes.xml` y `g1-telemetria-thousandeyes.xml` |
 

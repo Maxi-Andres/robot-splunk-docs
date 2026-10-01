@@ -10,6 +10,28 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 
 ---
 
+## 2026-10-01 · 10:38–10:56 ART — primer video del **G1**, por WiFi
+
+**Enlace:** WiFi "ROBOTS ONLY" (VLAN 51), PC2 `wlan0` a **−48 dBm, 5805 MHz, 286.7 Mbit/s HE-MCS 11
+2×2**, cable desenchufado (salida por `uplink-failover`). RTT SRT **3.0 ms**. Robot en
+`7b7f4cf`, `robot/video.g1.env.example` sin cambios: `SOURCE=jpeg`, 1280×720, `NVR_FPS=15`,
+`BITRATE=2000000`, SRT a `:8893`, latencia 150 ms.
+
+| Qué | Valor |
+|---|---|
+| Fuente: `GetImageSample` del `videohub_pc4` | 56.7 llamadas/s, **15.0 cuadros distintos/s**, 1920×1080, ~150 KB/JPEG |
+| `rt/frontvideostream` en el G1, mismo minuto | **0 muestras** |
+| Transporte con `videotestsrc` (10:38) | llega H.264 1280×720 a 15/1 al camino `g1` |
+| SRT recibido, régimen (51 s, 10:55) | 10045 paquetes, **2.12 Mbps**, pérdida en el aire **3.7 %**, **toda retransmitida** (374/374), **0 descartados** |
+| SRT, arranque (primeros ~70 s) | 973 perdidos, 247 descartados en HQ, `SND-DROPPED` en el robot — con el camino `g1` **cerrado** en mediamtx (ver abajo), así que no cuenta como medición del enlace |
+| Frigate cámara `g1` | 5.1 fps de detección, segmentos de grabación en `recordings/<fecha>/<hora>/g1/` |
+
+> ⚠️ **mediamtx perdió el camino `g1` en una recarga** (10:50:00): git reescribió
+> `mediamtx.yml` durante el commit, mediamtx lo leyó a medio escribir sin el bloque `g1` y no
+> volvió a recargar. Síntoma: `path 'g1' is not configured` con el archivo correcto en disco.
+> Arreglo: reescribir el archivo igual (`python3 -c "p='mediamtx.yml'; open(p,'wb').write(open(p,'rb').read())"`)
+> para forzar otra recarga. **Puede pasar en cualquier `git pull`/commit que toque ese archivo.**
+
 ## 2026-09-23 · 15:14–15:19 ART — la rama de manejo y el control, YA POR UDP, sobre Starlink
 
 **Enlace: Starlink** (`AS14593`), ping 50 × 0.2 s: **19.6 / 33.2 / 150.9 ms, 0% de pérdida** —
