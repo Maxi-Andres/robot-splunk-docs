@@ -713,6 +713,48 @@
       </single>
     </panel>
   </row>
+  <!-- The G1's two IMU temperatures, the same two the Unitree app shows. Named by TOPIC, not by
+       body part: which one is the body and which the crotch/pelvis is not documented in the SDK
+       headers and was not verified. No colour thresholds on purpose — both read ~80 °C at rest
+       (measured 2026-10-01) and nobody has said yet what is too hot for them. -->
+  <row>
+    <panel>
+      <title>Temp. IMU principal</title>
+      <single>
+        <search>
+          <query>index=g1-robot-data sourcetype=robot:vitals
+| head 1
+| eval t='imu.temp'
+| fields t</query>
+          <refresh>10s</refresh>
+          <refreshType>delay</refreshType>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="unit">°C</option>
+        <option name="underLabel">rt/lf/lowstate · sensor, no es motor</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Temp. IMU secundaria</title>
+      <single>
+        <search>
+          <query>index=g1-robot-data sourcetype=robot:vitals
+| head 1
+| eval t='imu_secondary.temp'
+| fields t</query>
+          <refresh>10s</refresh>
+          <refreshType>delay</refreshType>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="unit">°C</option>
+        <option name="underLabel">rt/lf/secondary_imu · sensor, no es motor</option>
+      </single>
+    </panel>
+  </row>
   <row>
     <panel>
       <title>G1 Pro — BENDER</title>
@@ -780,8 +822,8 @@
       <chart>
         <search>
           <query>index=g1-robot-data sourcetype=robot:vitals
-| eval mt='temp.motor_max', bt='temp.bms_max', it='imu.temp'
-| timechart span=1m max(mt) as "Motor máx", max(bt) as "Batería máx", avg(it) as "Sensor IMU (no es motor)"</query>
+| eval mt='temp.motor_max', bt='temp.bms_max', it='imu.temp', it2='imu_secondary.temp'
+| timechart span=1m max(mt) as "Motor máx", max(bt) as "Batería máx", avg(it) as "IMU principal (no es motor)", avg(it2) as "IMU secundaria (no es motor)"</query>
           <refresh>30s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
