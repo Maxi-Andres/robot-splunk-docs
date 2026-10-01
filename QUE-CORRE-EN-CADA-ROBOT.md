@@ -10,9 +10,9 @@ tiene que caer en una de estas filas — y su nombre tiene que decir en cuál.
 
 | El archivo se llama… | Corre en… | Ejemplo |
 |---|---|---|
-| **`go2_*`** | solo el Go2 | `go2_telemetry_reader.cpp`, `go2_jpeg_stream.cpp` |
+| **`go2_*`** | solo el Go2 | `go2_telemetry_reader.cpp`, `go2_h264_stream.cpp` |
 | **`g1_*`** o vive bajo **`host/g1/`** | solo el G1 | `g1_telemetry_reader.cpp`, `host/g1/uplink-failover.sh` |
-| **sin prefijo** | los dos, el mismo archivo | `hec_shipper.py`, `ndjson.hpp`, `relay_server.py` |
+| **sin prefijo** | los dos, el mismo archivo | `hec_shipper.py`, `ndjson.hpp`, `relay_server.py`, `videohub_jpeg_stream.cpp` |
 | `*.g1.service` | unit del G1, se instala **con el nombre sin `.g1`** | `robot-telemetry-agent.g1.service` → `/etc/systemd/system/robot-telemetry-agent.service` |
 
 Qué robot es lo decide **`ROBOT_MODEL`** (`go2` por defecto, `g1`) en el `run.sh` o el unit
@@ -21,8 +21,10 @@ compartido.** Si un repo necesita otra cosa además de `ROBOT_MODEL` para distin
 está mal diseñado.
 
 > ⚠️ **Deuda de nombres, a saldar cuando se escriba la variante del G1:**
-> `robot-command-relay/src/command_sender.cpp` y todo `robot-video-pipeline/robot/` son
-> **del Go2** aunque no tengan prefijo. No se renombraron todavía porque hoy no hay otra
+> `robot-command-relay/src/command_sender.cpp` es **del Go2** aunque no tenga prefijo.
+> El video ya no tiene deuda: `robot-video-pipeline/robot/` resultó **compartido** — el G1 lee
+> su cámara por el mismo videohub de Unitree — y `go2_jpeg_stream` se renombró a
+> **`videohub_jpeg_stream`** (2026-10-01) porque corre en los dos. No se renombraron todavía porque hoy no hay otra
 > variante con la que confundirlos, y renombrar sin tener la del G1 solo mueve el problema.
 > El lector de telemetría sí se renombró (`telemetry_reader` → `go2_telemetry_reader`,
 > 2026-09-30) porque ahí ya había dos.
@@ -75,10 +77,17 @@ host del G1, no del relay — por eso `host/g1/` y no `src/`.
 
 | Pieza | Go2 | G1 |
 |---|---|---|
-| Fuente | ✅ `src/go2_jpeg_stream.cpp`, `src/go2_h264_stream.cpp` | ❌ RealSense por V4L2 |
-| Encode + push | ✅ `robot/run-video.sh` → SRT `:8891` | ❌ |
-| Vista de manejo | ✅ `robot/mjpeg_server.py` `:8093` | ❌ |
-| Camino en mediamtx | `robot` | ❌ `g1` (plan: `docs/DOS-ROBOTS.md`) |
+| Fuente | ✅ `src/videohub_jpeg_stream.cpp` (compartido) o `src/go2_h264_stream.cpp` (multicast, solo Go2) | 🟡 el mismo `videohub_jpeg_stream`: lee el `videohub_pc4` de Unitree, que es el dueño de la RealSense. Medido 2026-10-01: 1920×1080 a 15 fps |
+| Encode + push | ✅ `robot/run-video.sh` → SRT `:8891` | 🟡 el mismo `run-video.sh` → SRT `:8893` |
+| Configuración | `robot/video.env` desde `video.env.example` | `robot/video.env` desde **`video.g1.env.example`** (7 claves distintas) |
+| Vista de manejo | ✅ `robot/mjpeg_server.py` `:8093` | 🟡 el mismo, `:8093` |
+| Camino en mediamtx / Frigate | `robot` / `robot` | ✅ `g1` / `g1` — HQ armado 2026-10-01 |
+
+> **La RealSense directa por V4L2** (`SOURCE=realsense`) **no se hizo**: en el G1 la cámara la
+> tiene el `videohub_pc4` de Unitree (`/dev/video4` "busy"), y abrirla rompería su video. Sí
+> sirve para la **RealSense que se le puede agregar al Go2**, donde nadie la usa — queda para
+> entonces, y va **sin prefijo** porque la misma cámara existe en los dos robots. La
+> **profundidad** del G1 (`/dev/video2`) está libre: es la que va a usar la percepción 3D.
 
 ### Fuera de los repos, en el robot
 
@@ -92,9 +101,9 @@ host del G1, no del relay — por eso `host/g1/` y no `src/`.
 
 | | Qué |
 |---|---|
-| `mediamtx` | caminos `robot` (Go2) y, cuando exista, `g1` |
-| `srt-bridge` | `:8891` → `udp:9000` → mediamtx. El G1 necesita su propio puerto |
-| Frigate | cámara `robot`; falta `g1` |
+| `mediamtx` | caminos `robot` (Go2) y `g1` |
+| `srt-bridge` / `srt-bridge-g1` | Go2 `:8891` → `udp:9000`; G1 `:8893` → `udp:9001` (unit de usuario en esta PC) |
+| Frigate | cámaras `robot` y `g1` |
 | `te-poller` | trae los dos agentes TE sin configuración: es por métrica, no por agente |
 | Dashboards (Splunk `.20.200`) | `go2-telemetria-thousandeyes.xml` y `g1-telemetria-thousandeyes.xml` |
 
