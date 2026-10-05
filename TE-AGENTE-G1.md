@@ -217,7 +217,30 @@ Crear los tests es un cambio en la org de TE: se hace desde la UI o con un `POST
 
 ---
 
-### 5.1. Bloqueado por cuota — 2026-09-29
+### 5.0. Resuelto — 2026-10-05: licencia renovada
+
+Con la licencia de vuelta, los 9 `PUT {"enabled":true}` del Go2 dieron `200` y los tres del G1
+se crearon (`201`). IDs nuevos:
+
+| Tipo | ID | Test |
+|---|---|---|
+| agent-to-agent | `562949953698113` | G1 - A1 - Jetson a TE-ENTERPRISE-SILK |
+| agent-to-server | `562949953698114` | G1 - B3 - Camino a Splunk |
+| agent-to-server | `562949953698115` | G1 - C1 - robot_executor 8090 |
+
+Dos cosas para el próximo `POST`: `server` va **solo con el host** y el puerto en `port`; y un
+agent-to-server contra una IP privada necesita `"bgpMeasurements": false` (si no, la API
+responde *Can only use private BGP Monitors for a local address*). Al crearlos,
+**`TE-ENTERPRISE-SILK` figuraba offline**: apagado desde el 2026-10-02 10:50 UTC.
+
+> ⚠️ **`TE-ENTERPRISE-SILK` es una VM del ESXi (`192.168.20.3`), hostname `TE-ENTERPRISE`,
+> IP `192.168.10.7` (VLAN 10), y NO arranca sola.** Se prendió a mano el 2026-10-05 ~11:03 y a
+> los 50 s estaba online; la primera ronda del A1 del G1 dio 0 % de pérdida y 2 ms. No
+> confundir con `splunk-collector` (`192.168.20.100`, otra VM, sin agente de TE). Además del
+> A1 del G1, de este agente depende el `Go2 - D1` y los tests corporativos (M365, Webex, DNS).
+> Pendiente: activarle el autoarranque en el ESXi (Host → Manage → System → Autostart).
+
+### 5.1. Bloqueado por cuota — 2026-09-29 (histórico)
 
 Los tres `POST` fallaron con **`You have reached your usage limit`** (HTTP 400). No es el
 formato: un primer intento había fallado por otra cosa — `server` tiene que ir **solo con el
