@@ -24,6 +24,8 @@ cd ~/Desktop && grep -rnoE "192\.168\.[0-9]+\.[0-9]+|10\.1\.254\.[0-9]+" \
 | Gateway de la VLAN 20 | `192.168.20.1` | |
 | **Splunk** | `192.168.20.200` | `:8000` UI · `:8088` HEC · `:8089` API |
 | ESXi — management (vmk0) | `192.168.20.3` | |
+| **IR1101 del Go2 (`IR1101-GO2-01`) visto desde HQ, SSH** | `10.1.254.1` | por el túnel; banner `SSH-2.0-Cisco-1.25` (verificado 2026-10-06). Su lado LAN es `192.168.123.1` (gateway del Jetson) — desde HQ esa IP es OTRO equipo |
+| IR1101 del Go2, lado celular | `10.100.152.120` · pública `186.143.197.246` | según su agente TE `LAB-IR-1101` (2026-10-06) |
 | Jetson del Go2 visto desde HQ | `10.1.254.18` | NAT del IR1101, operativo |
 | Bajo nivel visto desde HQ | `10.1.254.161` | twice-NAT, **pendiente** |
 | G1 PC2 visto desde HQ | `10.1.254.64` | |
