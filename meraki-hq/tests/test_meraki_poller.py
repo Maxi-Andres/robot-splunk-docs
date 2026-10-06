@@ -480,3 +480,39 @@ def test_dry_run_does_not_persist_the_watermark(monkeypatch, tmp_path):
 
     mp.cli(["--once"])
     assert state_file.exists(), "a real run must persist it"
+
+
+def test_a_dead_ipv6_probe_does_not_speak_for_a_healthy_wan(monkeypatch):
+    """Catches the HQ's wan1 painted red while it worked (2026-10-06).
+
+    The MX probes wan1 against 8.8.8.8 AND a Meraki IPv6 address. Without IPv6 on the link
+    the second is 100% loss / 0 ms forever; both rows share a ts, and the IPv6 one won.
+    """
+
+    def fake(path, key, params=None):
+        if "uplink/statuses" in path:
+            return [{"networkId": "N_1", "serial": "S1",
+                     "uplinks": [{"interface": "wan1", "status": "active"}]}]
+        return [
+            {"serial": "S1", "uplink": "wan1", "ip": "2620:12f:c00c::a",
+             "timeSeries": [{"ts": "T1", "lossPercent": 100.0, "latencyMs": 0.0}]},
+            {"serial": "S1", "uplink": "wan1", "ip": "8.8.8.8",
+             "timeSeries": [{"ts": "T1", "lossPercent": 0.0, "latencyMs": 2.3}]},
+        ]
+
+    monkeypatch.setattr(mp, "api_get", fake)
+    out = [e["event"] for e in events(mp.uplink_events("k", "O_1", NETS, {}))]
+    assert out[0]["lossPercent"] == 0.0 and out[0]["latencyMs"] == 2.3
+
+
+def test_ipv6_is_used_when_it_is_the_only_probe(monkeypatch):
+    def fake(path, key, params=None):
+        if "uplink/statuses" in path:
+            return [{"networkId": "N_1", "serial": "S1",
+                     "uplinks": [{"interface": "wan1", "status": "active"}]}]
+        return [{"serial": "S1", "uplink": "wan1", "ip": "2001:db8::1",
+                 "timeSeries": [{"ts": "T1", "lossPercent": 3.0, "latencyMs": 20.0}]}]
+
+    monkeypatch.setattr(mp, "api_get", fake)
+    out = [e["event"] for e in events(mp.uplink_events("k", "O_1", NETS, {}))]
+    assert out[0]["lossPercent"] == 3.0

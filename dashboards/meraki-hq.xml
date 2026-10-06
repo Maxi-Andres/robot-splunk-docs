@@ -22,8 +22,24 @@
         <earliest>-24h</earliest>
         <latest>now</latest>
       </search>
+      <!-- The HQ topology and every WAN panel follow `wan_net`, never "*": the uplink
+           searches group by uplink NAME (wan1/wan2), and every MX has a wan1. With "Todas"
+           the field kit's MX68 (Itinerante, off -> "not connected") overwrote the HQ MX84's
+           active wan1 and painted the HQ links red, and its offline MX made the topology's
+           MX node "1 / 2" (2026-10-06). "Todas" therefore shows the HQ. -->
+      <change>
+        <condition value="*">
+          <set token="wan_net">Silk Lab</set>
+        </condition>
+        <condition>
+          <set token="wan_net">$value$</set>
+        </condition>
+      </change>
     </input>
   </fieldset>
+  <init>
+    <set token="wan_net">Silk Lab</set>
+  </init>
 
   <!-- ================================================================================
        TOKENS DE LA TOPOLOGÍA VIVA (fila 0).
@@ -40,7 +56,7 @@
        Tres nodos del diagrama salen de acá; hacerlo en tres búsquedas triplicaba el
        costo del panel sin agregar nada. -->
   <search>
-    <query>index=meraki networkName="$net$" sourcetype=meraki:api:device
+    <query>index=meraki networkName="$wan_net$" sourcetype=meraki:api:device
 | stats latest(status) as st by serial productType
 | stats count(eval(st="online")) as up, count as tot by productType
 | stats sum(eval(if(productType="wireless",up,0))) as wup, sum(eval(if(productType="wireless",tot,0))) as wtot,
@@ -72,7 +88,7 @@
        de pérdida NO es verde. Es la misma lección que el video sobre LTE — el enlace
        puede estar arriba y ser inservible. -->
   <search>
-    <query>index=meraki networkName="$net$" sourcetype=meraki:api:uplink
+    <query>index=meraki networkName="$wan_net$" sourcetype=meraki:api:uplink
 | stats latest(status) as st, latest(lossPercent) as loss, latest(latencyMs) as lat by uplink
 | eval cls=case(st="active","up", st="ready","warn", st="failed","down", true(),"nd")
 | eval cls=case(isnotnull(loss) AND loss&gt;=5,"down", isnotnull(loss) AND loss&gt;=1,"warn", true(),cls)
@@ -151,7 +167,7 @@
        detalle que hace que el diagrama se lea de un vistazo: si los guiones corren, hay
        tráfico; si se arrastran, no. Sin tráfico el flujo queda casi quieto (6 s). -->
   <search>
-    <query>index=meraki networkName="$net$" sourcetype=meraki:api:uplinkusage
+    <query>index=meraki networkName="$wan_net$" sourcetype=meraki:api:uplinkusage
 | eval mbps=(sentBytes+receivedBytes)*8/1000000/intervalSec
 | stats avg(mbps) as m
 | eval m=coalesce(m,0)
@@ -203,7 +219,7 @@
       <html>
         <div style="border-left:4px solid #53a051;padding:8px 14px;margin:6px 0;background:#1a1c20;">
           <h2 style="margin:0;color:#dcdcdc;font-size:16px;">0 · Topología del HQ y estado de los enlaces</h2>
-          <div style="color:#9aa0a6;font-size:12px;">Clientes → MR46 / cableado → MS120 → MX68 → WAN1 · WAN2 → Internet → nube de Meraki · colores y flujo en vivo desde meraki:api:device, :uplink, :client, :wireless y :uplinkusage</div>
+          <div style="color:#9aa0a6;font-size:12px;">Clientes → MR46 / cableado → MS120 → MX84 → WAN1 · WAN2 → Internet → nube de Meraki · colores y flujo en vivo desde meraki:api:device, :uplink, :client, :wireless y :uplinkusage</div>
         </div>
       </html>
     </panel>
@@ -318,7 +334,7 @@
 
             <!-- NODO: appliance -->
             <rect class="nbox" x="740" y="155" width="180" height="120" rx="7"/>
-            <text class="ntitle" x="754" y="181">MX68</text>
+            <text class="ntitle" x="754" y="181">MX84</text>
             <text class="nsub" x="754" y="199">security appliance</text>
             <text class="nsub" x="754" y="221">salida a Internet</text>
             <text class="nsub" x="754" y="239">firewall y VPN del sitio</text>
@@ -425,7 +441,7 @@
       <title>Uplink activo</title>
       <single>
         <search>
-          <query>index=meraki sourcetype=meraki:api:uplink networkName="$net$"
+          <query>index=meraki sourcetype=meraki:api:uplink networkName="$wan_net$"
 | stats latest(status) as status by uplink
 | where status="active"
 | stats values(uplink) as v
@@ -444,7 +460,7 @@
       <title>Latencia WAN</title>
       <single>
         <search>
-          <query>index=meraki sourcetype=meraki:api:uplink networkName="$net$" status=active
+          <query>index=meraki sourcetype=meraki:api:uplink networkName="$wan_net$" status=active
 | stats latest(latencyMs) as v
 | eval v=round(v,0)</query>
           <earliest>$tr.earliest$</earliest>
@@ -464,7 +480,7 @@
       <title>Pérdida WAN</title>
       <single>
         <search>
-          <query>index=meraki sourcetype=meraki:api:uplink networkName="$net$" uplink=wan*
+          <query>index=meraki sourcetype=meraki:api:uplink networkName="$wan_net$" uplink=wan*
 | stats latest(lossPercent) as loss by uplink
 | stats max(loss) as v
 | eval v=round(v,2)</query>
@@ -546,7 +562,7 @@
       <title>Throughput por uplink (Mbps)</title>
       <chart>
         <search>
-          <query>index=meraki sourcetype=meraki:api:uplinkusage networkName="$net$"
+          <query>index=meraki sourcetype=meraki:api:uplinkusage networkName="$wan_net$"
 | eval mbps=(sentBytes+receivedBytes)*8/1000000/intervalSec
 | timechart span=5m avg(mbps) by uplink</query>
           <earliest>$tr.earliest$</earliest>
@@ -565,7 +581,7 @@
       <title>Latencia y pérdida por uplink</title>
       <chart>
         <search>
-          <query>index=meraki sourcetype=meraki:api:uplink networkName="$net$"
+          <query>index=meraki sourcetype=meraki:api:uplink networkName="$wan_net$"
 | timechart span=5m avg(latencyMs) as "Latencia (ms)" avg(lossPercent) as "Pérdida (%)"</query>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
@@ -856,7 +872,7 @@
       <title>Tráfico promedio por hora del día (Mbps)</title>
       <chart>
         <search>
-          <query>index=meraki sourcetype=meraki:api:uplinkusage networkName="$net$"
+          <query>index=meraki sourcetype=meraki:api:uplinkusage networkName="$wan_net$"
 | eval mbps=(sentBytes+receivedBytes)*8/1000000/intervalSec
 | eval Hora=strftime(_time,"%H")
 | stats avg(mbps) as Mbps by Hora

@@ -345,6 +345,23 @@ def device_events(key, org_id, nets):
     return out
 
 
+def _pick_probe(probes):
+    """The (ip, point) that speaks for an uplink among its probe targets.
+
+    IPv4 targets first -- an IPv6 probe on a link without IPv6 only ever reports 100% loss --
+    and among those the lowest loss: the question the panels ask is "does this uplink reach
+    the Internet", which one reachable target answers. IPv6 is used only when it is all
+    there is.
+    """
+    v4 = [pr for pr in probes if ":" not in str(pr[0] or "")]
+
+    def loss(pr):
+        val = _f(pr[1].get("lossPercent"))
+        return float("inf") if val is None else val
+
+    return min(v4 or probes, key=loss)
+
+
 def uplink_events(key, org_id, nets, state):
     """sourcetype=meraki:api:uplink -- panels: active uplink, WAN loss, WAN latency, failover.
 
@@ -373,26 +390,33 @@ def uplink_events(key, org_id, nets, state):
         log(f"uplink loss/latency unavailable (HTTP {e.code}), loss and latency panels stay blank")
         series = []
 
-    # Latest sample per (serial, uplink), and a watermark so a re-poll of an overlapping
-    # window does not bill the same point twice.
-    latest = {}
-    seen = state.setdefault("uplink_ts", {})
+    # The series has ONE ROW PER PROBE TARGET, not per uplink: an MX measures wan1 against
+    # 8.8.8.8 and also against a Meraki IPv6 address. On a link without IPv6 that probe is
+    # 100% loss / 0 ms forever, and it used to be the one emitted -- both rows carry the same
+    # ts and the watermark dropped the second -- so a healthy wan1 (0%, 2.3 ms) read as down
+    # (2026-10-06). Newest sample per target first, then ONE target per uplink, then the
+    # watermark, so a skipped IPv4 point can never let the IPv6 one through.
+    newest_by_uplink = {}
     for row in series:
         serial, uplink = row.get("serial", ""), row.get("uplink", "")
-        points = row.get("timeSeries") or []
         newest = None
-        for p in points:
+        for p in row.get("timeSeries") or []:
             if p.get("lossPercent") is None and p.get("latencyMs") is None:
                 continue
             if newest is None or str(p.get("ts", "")) > str(newest.get("ts", "")):
                 newest = p
-        if newest is None:
+        if newest is not None:
+            newest_by_uplink.setdefault(f"{serial}/{uplink}", []).append((row.get("ip"), newest))
+
+    latest = {}
+    seen = state.setdefault("uplink_ts", {})
+    for mark, probes in newest_by_uplink.items():
+        ip, point = _pick_probe(probes)
+        wmark = f"{mark}/{ip}"
+        if seen.get(wmark) == point.get("ts"):
             continue
-        mark = f"{serial}/{uplink}"
-        if seen.get(mark) == newest.get("ts"):
-            continue
-        seen[mark] = newest.get("ts")
-        latest[mark] = newest
+        seen[wmark] = point.get("ts")
+        latest[mark] = point
 
     out = []
     for s in statuses:
