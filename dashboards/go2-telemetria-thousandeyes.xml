@@ -888,15 +888,17 @@
           <refreshType>delay</refreshType>
         </search>
         <option name="mapping.type">marker</option>
-        <!-- Splunk's built-in tiles stop at a low zoom (city level). CARTO's dark OSM tiles go to
-             street level (Splunk caps the map at z18) and match the dark theme. The viewer's browser fetches them, so
-             https://*.basemaps.cartocdn.com must be in Settings -> Dashboards Trusted Domains,
-             like Frigate's camera. Centre = the first fix, 2026-10-07 (-34.636105, -58.399052). -->
-        <option name="mapping.tileLayer.url">https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png</option>
-        <option name="mapping.tileLayer.subdomains">[a,b,c,d]</option>
+        <!-- Splunk's built-in tiles stop at city level. Tried 2026-10-07 at z18 on the robot's
+             block, fetched with the dashboard's own referer: OpenStreetMap answers "Access
+             blocked" (its policy refuses a private-IP origin) and CARTO "API KEY REQUIRED" —
+             only Esri's World Imagery serves real tiles without a key. Satellite is the better
+             view for a robot outdoors anyway. The viewer's browser fetches the tiles, so
+             https://server.arcgisonline.com must be in Settings -> Dashboards Trusted Domains.
+             Splunk caps the map at z18. Centre = the first fix (-34.636105, -58.399052). -->
+        <option name="mapping.tileLayer.url">https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}</option>
         <option name="mapping.tileLayer.minZoom">2</option>
         <option name="mapping.tileLayer.maxZoom">18</option>
-        <option name="mapping.tileLayer.attribution">© OpenStreetMap contributors © CARTO</option>
+        <option name="mapping.tileLayer.attribution">Tiles © Esri — Esri, Maxar, Earthstar Geographics</option>
         <option name="mapping.map.center">(-34.6361,-58.3991)</option>
         <option name="mapping.map.zoom">17</option>
         <option name="mapping.markerLayer.markerOpacity">0.85</option>
