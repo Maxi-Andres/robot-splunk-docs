@@ -10,6 +10,32 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 
 ---
 
+## 2026-10-07 · consumo de datos del Go2 sobre LTE, por hora — antes y ahora
+
+**Contexto:** a la tarde el kit se quedó sin datos en la SIM de Movistar (el Go2 y el IR1101
+dejaron de responder al ping a la vez). Estas son **cuentas a partir de los bitrates medidos
+hoy** (`both_probe.py`, stats de `srt-live-transmit`), no lo que factura la SIM: no incluyen
+el overhead de IP/UDP/SRT (~5-10%), las retransmisiones de SRT (hoy ~20-25% de los paquetes
+se reenvían, así que el NVR real gasta algo más que su bitrate), la telemetría ni
+ThousandEyes. Subida del robot = lo que se cobra.
+
+| stream | **antes (mañana del 07-10)** | **ahora (desde 13:10 del 07-10)** |
+|---|---|---|
+| NVR / grabación (SRT) | 0.8 Mbps ≈ **360 MB/h** | 1.3 Mbps ≈ **585 MB/h** |
+| Drive, intra (UDP) | 480×270 QP40, 0.34 Mbps ≈ **150 MB/h** | 640×360 QP38, 0.6-0.7 Mbps ≈ **270-315 MB/h** |
+| MJPEG (TCP, lo leía el bridge) | 480×270 q25 cap 10, 0.55 Mbps ≈ **250 MB/h** | **0** — fuera del enlace |
+| **total de video** | **~1.7 Mbps ≈ 760 MB/h** | **~1.9-2.0 Mbps ≈ 855-900 MB/h** |
+
+Referencia anterior (plan de video, 16-09): **720 MB/h** (MJPEG 419 + H.264 302).
+
+**Lo que se gastó de más hoy, aparte del video:** mediciones de 90 s en ambas ramas, dos
+`iperf3` de 10 s robot→HQ (~1.3 MB) y HQ→robot (~28 MB, el de bajada es el caro), y las
+pruebas del NVR a 1.3 Mbps antes de subir el `latency` de SRT.
+
+**Perillas para ahorrar, desde la pestaña Video:** NVR a 0.8 Mbps (−225 MB/h; con
+`latency=900` ya no se corrompe), drive a 480×270 o QP40 (−120 a −165 MB/h). Con las dos:
+~510 MB/h, un tercio menos que antes de hoy.
+
 ## 2026-10-07 · 14:21–14:25 ART — el `/drive` con YOLO prendido en `/live` (plan YOLO §5)
 
 **Config:** YOLO emparejado en el navegador (transporte intra en `/live`, `POST /api/detect`),
