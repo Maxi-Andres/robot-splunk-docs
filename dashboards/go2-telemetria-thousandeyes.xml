@@ -861,7 +861,7 @@
        module (P-LTEA7-EAL) streams NMEA over UDP; the robot side parses it and ships ONE event
        per interval to index=go2-robot-data sourcetype=robot:gps with
          lat, lon     DECIMAL degrees (NMEA is ddmm.mmmm: 3436.1234 = 34.60206, not 34.36)
-         fix          0 none · 1 GPS · 2 DGPS (GGA quality)      sats, hdop, alt_m, speed_kmh
+         fix          0 none · 1 GPS · 2 DGPS (GGA quality)      sats_used, sats_view, hdop, alt_m, speed_kmh
        Until the first fix these panels read "sin datos"; that is expected, not a fault.
        Map tiles are fetched by the viewer's browser, not by Splunk. -->
   <row>
@@ -878,6 +878,12 @@
   <row>
     <panel id="gpsMapa">
       <title>Recorrido y última posición</title>
+      <input type="radio" token="gps_base">
+        <label>Mapa</label>
+        <choice value="World_Imagery">Satélite</choice>
+        <choice value="World_Street_Map">Calles</choice>
+        <default>World_Imagery</default>
+      </input>
       <map>
         <search>
           <query>index=go2-robot-data sourcetype=robot:gps fix&gt;0 lat=* lon=*
@@ -891,14 +897,16 @@
         <!-- Splunk's built-in tiles stop at city level. Tried 2026-10-07 at z18 on the robot's
              block, fetched with the dashboard's own referer: OpenStreetMap answers "Access
              blocked" (its policy refuses a private-IP origin) and CARTO "API KEY REQUIRED" —
-             only Esri's World Imagery serves real tiles without a key. Satellite is the better
-             view for a robot outdoors anyway. The viewer's browser fetches the tiles, so
+             only Esri serves real tiles without a key. The radio above switches between two Esri
+             services, both checked at z18 on the robot's block: World_Imagery (satellite) and
+             World_Street_Map (the plain street map). Esri's grey Canvas looks simpler but stops at
+             z16 ("Map data not yet available"). The viewer's browser fetches the tiles, so
              https://server.arcgisonline.com must be in Settings -> Dashboards Trusted Domains.
              Splunk caps the map at z18. Centre = the first fix (-34.636105, -58.399052). -->
-        <option name="mapping.tileLayer.url">https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}</option>
+        <option name="mapping.tileLayer.url">https://server.arcgisonline.com/ArcGIS/rest/services/$gps_base$/MapServer/tile/{z}/{y}/{x}</option>
         <option name="mapping.tileLayer.minZoom">2</option>
         <option name="mapping.tileLayer.maxZoom">18</option>
-        <option name="mapping.tileLayer.attribution">Tiles © Esri — Esri, Maxar, Earthstar Geographics</option>
+        <option name="mapping.tileLayer.attribution">Tiles © Esri — Esri, Maxar, Earthstar Geographics, HERE, Garmin, OpenStreetMap contributors</option>
         <option name="mapping.map.center">(-34.6361,-58.3991)</option>
         <option name="mapping.map.zoom">17</option>
         <option name="mapping.markerLayer.markerOpacity">0.85</option>
@@ -915,14 +923,17 @@
         <search>
           <query>index=go2-robot-data sourcetype=robot:gps
 | head 1
-| eval Fix=case(fix&gt;=2,"DGPS",fix=1,"GPS",true(),"sin fix"),
+| append [| makeresults | eval fix=-1]
+| head 1
+| eval Fix=case(fix=-1,"sin datos (el lector no envió nada en 24 h)",fix&gt;=2,"DGPS",fix=1,"GPS",true(),"sin fix"),
        "Latitud"=if(fix&gt;0,round(lat,6),"—"), "Longitud"=if(fix&gt;0,round(lon,6),"—"),
-       "Satélites"=coalesce(sats,"—"), HDOP=coalesce(round(hdop,1),"—"),
+       "Satélites (usados / a la vista)"=coalesce(sats_used,"—")." / ".coalesce(sats_view,"—"),
+       HDOP=coalesce(round(hdop,1),"—"),
        "Altura (m)"=coalesce(round(alt_m,0),"—"), "Velocidad (km/h)"=coalesce(round(speed_kmh,1),"—"),
-       "Antigüedad"=tostring(round(now()-_time,0))." s",
+       "Antigüedad"=if(fix=-1,"—",tostring(round(now()-_time,0))." s"),
        "Google Maps"=if(fix&gt;0,"https://www.google.com/maps?q=".lat.",".lon,"—"),
        "OpenStreetMap"=if(fix&gt;0,"https://www.openstreetmap.org/?mlat=".lat."&amp;mlon=".lon."#map=18/".lat."/".lon,"—")
-| table Fix "Latitud" "Longitud" "Satélites" HDOP "Altura (m)" "Velocidad (km/h)" "Antigüedad" "Google Maps" "OpenStreetMap"
+| table Fix "Latitud" "Longitud" "Satélites (usados / a la vista)" HDOP "Altura (m)" "Velocidad (km/h)" "Antigüedad" "Google Maps" "OpenStreetMap"
 | transpose 0 column_name=Campo
 | rename "row 1" as Valor</query>
           <earliest>-24h</earliest>
