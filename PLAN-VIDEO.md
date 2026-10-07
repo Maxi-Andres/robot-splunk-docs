@@ -714,7 +714,7 @@ Lo que ya existe, verificado el 2026-09-16:
 |---|---|
 | `srtsink` en el robot | ✅ presente (libsrt 1.4.0) |
 | `PROTO=srt` en `run-video.sh` | ✅ apunta al 8891 por default |
-| `srt-bridge` en HQ (`srt-live-transmit`) | ✅ **corriendo hace 2 días**, escucha `srt://:8891?latency=150` y reenvía a `udp://127.0.0.1:9000` |
+| `srt-bridge` en HQ (`srt-live-transmit`) | ✅ corriendo, escucha `srt://:8891?latency=900` (era 150 hasta el 2026-10-07, ver la nota de abajo de §A) y reenvía a `udp://127.0.0.1:9000` |
 | el path que ingiere ese UDP | ❌ **SOLO está en el `mediamtx.yml` de PRUEBA** |
 
 La línea que falta en producción, ya verificada contra la doc de mediamtx v1.19.2:
@@ -934,6 +934,17 @@ efecto se mide sin herramientas nuevas: el hook ya reporta `stats.jitterBufferMs
 
 > ⚠️ **Y la demostración en vivo de la regla "los dos extremos o ninguno"**: con HQ en 80 y el
 > robot todavía en 150, lo negociado siguió siendo **150**. SRT toma el mayor de los dos.
+
+> ⚠️ **2026-10-07 — la dirección correcta resultó ser la CONTRARIA, para el NVR.** Con 150 ms
+> sobre LTE el receptor descartaba 1-5% de los paquetes con el enlace tranquilo y **20-49%**
+> con la subida ocupada, y eso era la grabación de Frigate con bloques y deriva violeta: un
+> keyframe 1080p son ~22 paquetes; si falta uno, el decodificador predice de basura hasta el
+> próximo IDR que llegue entero (con ese descarte, casi ninguno). Subido a **1000 ms en el
+> receptor de HQ** (SRT negocia el mayor; el robot no se toca): 12 min, 93300 paquetes, 22.5%
+> perdidos en el aire y **0 descartados**, con el NVR a 1.3 Mbps. Después el operador lo
+> recortó a **900**. Bajar el `LATENCY` sólo tenía sentido mientras el `/drive` dependía de esta
+> rama; desde que el `/drive` va por el H.264 todo-intra (UDP propio), el NVR no lo mira nadie
+> para manejar, y el retraso es barato mientras que la pérdida no. Ver `MEDICIONES.md` 2026-10-07.
 
 #### A (descripción original). Bajar `LATENCY` de SRT — 105-120 ms de los 260, y los pusimos nosotros
 

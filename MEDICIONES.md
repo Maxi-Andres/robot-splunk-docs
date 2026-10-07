@@ -81,6 +81,14 @@ que ahora hay tiempo para repararla. **Costo:** ~850 ms más en todo lo que sale
 (Frigate, WHEP del bridge → YOLO/VLM, botón H.264/WebRTC). El `/drive` va por el intra y no lo
 paga. `BITRATE=1300000` vuelve al `video.env` del robot.
 
+**12:35 — recortado a `latency=900`** a pedido del operador (a ojo la mejora se ve). Los 12
+minutos a 1000: 93300 paquetes, 22.5% perdidos en el aire, **0 descartados**, RTT suavizado
+43-77 ms.
+
+**G1:** su receptor (`srt-bridge-g1.service`) sigue en 150 a propósito. Por WiFi midió 3.7% de
+pérdida en el aire, **toda** retransmitida, 0 descartes (2026-10-01): no tiene el problema. Si
+alguna vez sale por un enlace celular, es la misma causa y el mismo arreglo.
+
 C corrió con el enlace PEOR: ping 18.5 / **75.4** / 388 ms, **mdev 77** (A: 53 / mdev 29), 0%
 de pérdida ICMP; `h264_udp_send_drops` 7 en el robot. La mediana no subió con el QP38; la cola
 y los 15 cuadros perdidos van con el jitter del LTE en ese momento, no con el QP.
