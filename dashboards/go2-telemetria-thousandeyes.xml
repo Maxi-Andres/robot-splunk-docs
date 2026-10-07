@@ -29,7 +29,91 @@
   <!-- El nombre del agente de ThousandEyes del robot, en UN solo lugar. Este dashboard es
        del Go2: todo panel de TE filtra por este token. Si el agente se re-enrola con otro
        nombre, se cambia acá y nada mas. -->
+  <!-- GPS status card (section "Posición"): one card, not a transposed table. The age is
+       measured at search time (refresh 15 s), so it lags by up to that much. -->
+  <search>
+    <query>index=go2-robot-data sourcetype=robot:gps
+| head 1
+| eval edad=round(now()-_time,0),
+   cls=case(edad&gt;60,"warn",fix&gt;0,"ok",true(),"bad"),
+   estado=case(edad&gt;60,"SIN DATOS RECIENTES",fix&gt;=2,"FIX DGPS",fix=1,"FIX GPS",true(),"SIN FIX"),
+   la=if(fix&gt;0,tostring(round(lat,6)),"sin posición"), lo=if(fix&gt;0,tostring(round(lon,6)),""),
+   pcls=if(fix&gt;0,"coord","coord none"),
+   sat=coalesce(sats_used,0), satsub=if(isnum(sats_view),"usados / ".sats_view." a la vista","usados"),
+   hd=if(isnum(hdop),tostring(round(hdop,1)),"—"),
+   hdq=case(NOT isnum(hdop),"",hdop&lt;1,"excelente",hdop&lt;2,"buena",hdop&lt;5,"moderada",true(),"mala"),
+   alt=if(isnum(alt_m),tostring(round(alt_m,0)),"—"), altu=if(isnum(alt_m),"m",""),
+   vel=if(isnum(speed_kmh),tostring(round(speed_kmh,1)),"—"), velu=if(isnum(speed_kmh),"km/h",""),
+   edadtxt=case(edad&lt;120,"hace ".edad." s",edad&lt;7200,"hace ".round(edad/60,0)." min",true(),"hace ".round(edad/3600,1)." h"),
+   gm=if(fix&gt;0,"https://www.google.com/maps?q=".lat.",".lon,"#"),
+   osm=if(fix&gt;0,"https://www.openstreetmap.org/?mlat=".lat."&amp;mlon=".lon."#map=19/".lat."/".lon,"#"),
+   lnk=if(fix&gt;0,"","off")
+| fields cls estado la lo pcls sat satsub hd hdq alt altu vel velu edadtxt gm osm lnk</query>
+    <earliest>-24h</earliest>
+    <latest>now</latest>
+    <refresh>15s</refresh>
+    <refreshType>delay</refreshType>
+    <done>
+      <condition match="$job.resultCount$ == 0">
+        <set token="gps_cls">nd</set>
+        <set token="gps_estado">SIN DATOS</set>
+        <set token="gps_edad">nada en 24 h</set>
+        <set token="gps_lat">sin posición</set>
+        <set token="gps_lon"></set>
+        <set token="gps_pcls">coord none</set>
+        <set token="gps_sat">—</set>
+        <set token="gps_satsub"></set>
+        <set token="gps_hdop">—</set>
+        <set token="gps_hdq"></set>
+        <set token="gps_alt">—</set>
+        <set token="gps_vel">—</set>
+        <set token="gps_altu"></set>
+        <set token="gps_velu"></set>
+        <set token="gps_gm">#</set>
+        <set token="gps_osm">#</set>
+        <set token="gps_lnk">off</set>
+      </condition>
+      <condition>
+        <set token="gps_cls">$result.cls$</set>
+        <set token="gps_estado">$result.estado$</set>
+        <set token="gps_edad">$result.edadtxt$</set>
+        <set token="gps_lat">$result.la$</set>
+        <set token="gps_lon">$result.lo$</set>
+        <set token="gps_sat">$result.sat$</set>
+        <set token="gps_satsub">$result.satsub$</set>
+        <set token="gps_pcls">$result.pcls$</set>
+        <set token="gps_hdop">$result.hd$</set>
+        <set token="gps_hdq">$result.hdq$</set>
+        <set token="gps_alt">$result.alt$</set>
+        <set token="gps_vel">$result.vel$</set>
+        <set token="gps_altu">$result.altu$</set>
+        <set token="gps_velu">$result.velu$</set>
+        <set token="gps_gm">$result.gm$</set>
+        <set token="gps_osm">$result.osm$</set>
+        <set token="gps_lnk">$result.lnk$</set>
+      </condition>
+    </done>
+  </search>
   <init>
+    <set token="gps_url">https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}</set>
+    <set token="gps_attr">Tiles © Esri — Esri, Maxar, Earthstar Geographics, HERE, Garmin, OpenStreetMap contributors</set>
+    <set token="gps_cls">nd</set>
+    <set token="gps_estado">CARGANDO</set>
+    <set token="gps_edad">—</set>
+    <set token="gps_lat">sin posición</set>
+    <set token="gps_lon"></set>
+    <set token="gps_pcls">coord none</set>
+    <set token="gps_sat">—</set>
+    <set token="gps_satsub"></set>
+    <set token="gps_hdop">—</set>
+    <set token="gps_hdq"></set>
+    <set token="gps_alt">—</set>
+    <set token="gps_vel">—</set>
+    <set token="gps_altu"></set>
+    <set token="gps_velu"></set>
+    <set token="gps_gm">#</set>
+    <set token="gps_osm">#</set>
+    <set token="gps_lnk">off</set>
     <set token="te_agent">go2-jetson-01</set>
     <!-- El agente del Jetson corre mas de un test. Los singles y el timechart miden EL
          ENLACE DEL ROBOT; sin este token promediaban todos los tests juntos y un test
@@ -869,22 +953,75 @@
       <html>
         <div style="border-left:4px solid #4a8fd4;padding:8px 14px;margin:6px 0;background:#1a1c20;">
           <h2 style="margin:0;color:#dcdcdc;font-size:16px;">Posición — GPS del IR1101</h2>
-          <div style="color:#9aa0a6;font-size:12px;">GNSS del módulo celular P-LTEA7-EAL · index=go2-robot-data sourcetype=robot:gps · sin datos hasta el primer fix</div>
+          <div style="color:#9aa0a6;font-size:12px;">GNSS del módulo celular P-LTEA7-EAL, leído por el Jetson · una posición cada 5 s · index=go2-robot-data sourcetype=robot:gps</div>
         </div>
-        <style>.dashboard-cell:has(#gpsMapa){flex:0 0 68% !important;width:68% !important;} .dashboard-cell:has(#gpsMapa) + .dashboard-cell{flex:0 0 32% !important;width:32% !important;}</style>
+        <style>
+          .dashboard-cell:has(#gpsMapa){flex:0 0 68% !important;width:68% !important;}
+          .dashboard-cell:has(#gpsMapa) + .dashboard-cell{flex:0 0 32% !important;width:32% !important;}
+          /* The base-map selector floats on the panel's title line instead of taking a block of
+             its own. The radio's inner markup is Splunk's (unknown nesting: targeting its
+             classes left the options stacked, 2026-10-07), so EVERY div inside it is forced to
+             a row — label, then the options, side by side. */
+          #gpsMapa{position:relative;}
+          #gpsBase{position:absolute !important;top:4px;right:12px;z-index:20;width:auto !important;min-width:0 !important;margin:0 !important;padding:0 !important;}
+          #gpsBase, #gpsBase div, #gpsBase [role="radiogroup"]{display:flex !important;flex-direction:row !important;flex-wrap:nowrap !important;align-items:center !important;gap:8px;width:auto !important;margin:0 !important;padding:0 !important;white-space:nowrap;}
+          #gpsBase > label{margin:0 6px 0 0 !important;padding:0 !important;color:#9aa0a6;}
+          /* Floating the input is not enough: its wrapper keeps the ~70 px it would have used. */
+          #gpsMapa *:has(> #gpsBase){height:0 !important;min-height:0 !important;margin:0 !important;padding:0 !important;border:0 !important;overflow:visible !important;}
+          #gpsBase [role="radio"], #gpsBase [data-test="option"], #gpsBase .choice{margin-left:10px !important;}
+          #gpsCard{background:#141619;border:1px solid #23262b;border-radius:6px;padding:16px 18px;min-height:404px;box-sizing:border-box;font-family:Roboto,Arial,sans-serif;color:#dcdcdc;display:flex;flex-direction:column;gap:14px;}
+          #gpsCard .top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+          #gpsCard .pill{font-size:15px;font-weight:700;letter-spacing:.06em;padding:6px 14px;border-radius:999px;}
+          #gpsCard .pill.ok{background:rgba(83,160,81,.16);color:#6fc46d;border:1px solid #53a051;}
+          #gpsCard .pill.warn{background:rgba(242,184,39,.14);color:#f2b827;border:1px solid #f2b827;}
+          #gpsCard .pill.bad{background:rgba(220,78,65,.14);color:#ef6a5e;border:1px solid #dc4e41;}
+          #gpsCard .pill.nd{background:#1f2227;color:#879199;border:1px solid #3a3f46;}
+          #gpsCard .age{font-size:12px;color:#9aa0a6;text-align:right;line-height:1.4;}
+          #gpsCard .k{font-size:11px;color:#879199;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;}
+          #gpsCard .coord{font-family:"Roboto Mono",Menlo,monospace;font-size:20px;color:#e8eaed;line-height:1.35;}
+          #gpsCard .coord.none{font-family:Roboto,Arial,sans-serif;font-size:16px;color:#879199;}
+          #gpsCard .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+          #gpsCard .cell{background:#1a1c20;border:1px solid #23262b;border-radius:5px;padding:10px 12px;}
+          #gpsCard .v{font-size:19px;font-weight:600;color:#e8eaed;}
+          #gpsCard .sub{font-size:11px;color:#9aa0a6;margin-left:4px;font-weight:400;}
+          #gpsCard .links{display:flex;gap:8px;margin-top:auto;}
+          #gpsCard .links a{flex:1;text-align:center;padding:8px 6px;border-radius:5px;border:1px solid #31353c;background:#1f2227;color:#8ab4f8;text-decoration:none;font-size:12.5px;}
+          #gpsCard .links a:hover{background:#262a30;border-color:#4a8fd4;}
+          #gpsCard .links.off a{opacity:.35;pointer-events:none;}
+        </style>
       </html>
     </panel>
   </row>
   <row>
     <panel id="gpsMapa">
       <title>Recorrido y última posición</title>
-      <input type="radio" token="gps_base">
+      <input type="radio" token="gps_base" id="gpsBase">
         <label>Mapa</label>
-        <choice value="World_Imagery">Satélite</choice>
-        <choice value="World_Street_Map">Calles</choice>
-        <default>World_Imagery</default>
+        <choice value="sat">Satélite</choice>
+        <choice value="calles">Calles</choice>
+        <choice value="minimal">Minimal</choice>
+        <default>sat</default>
+        <change>
+          <condition value="calles">
+            <unset token="gps_dark"></unset>
+            <set token="gps_url">https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}</set>
+            <set token="gps_attr">Tiles © Esri — Esri, Maxar, Earthstar Geographics, HERE, Garmin, OpenStreetMap contributors</set>
+          </condition>
+          <condition value="minimal">
+            <set token="gps_dark">1</set>
+          </condition>
+          <condition>
+            <unset token="gps_dark"></unset>
+            <set token="gps_url">https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}</set>
+            <set token="gps_attr">Tiles © Esri — Esri, Maxar, Earthstar Geographics, HERE, Garmin, OpenStreetMap contributors</set>
+          </condition>
+        </change>
       </input>
-      <map>
+      <!-- One token decides which map is visible: the minimal map depends on gps_dark, this one
+           rejects it. Two tokens (one per map) showed BOTH when the page opened with
+           form.gps_base=oscuro in the URL: <init> re-set the Esri one after the input's change
+           (2026-10-07). With one token there is no initial value to race. -->
+      <map rejects="$gps_dark$">
         <search>
           <query>index=go2-robot-data sourcetype=robot:gps fix&gt;0 lat=* lon=*
 | geostats latfield=lat longfield=lon maxzoomlevel=18 count</query>
@@ -900,15 +1037,45 @@
              only Esri serves real tiles without a key. The radio above switches between two Esri
              services, both checked at z18 on the robot's block: World_Imagery (satellite) and
              World_Street_Map (the plain street map). Esri's grey Canvas looks simpler but stops at
-             z16 ("Map data not yet available"). The viewer's browser fetches the tiles, so
+             z16 ("Map data not yet available"). Esri tiles are {z}/{y}/{x}, so each choice
+             sets the whole URL. "Minimal" is the separate map element below.
+             The viewer's browser fetches the tiles, so
              https://server.arcgisonline.com must be in Settings -> Dashboards Trusted Domains.
              Splunk caps the map at z18. Centre = the first fix (-34.636105, -58.399052). -->
-        <option name="mapping.tileLayer.url">https://server.arcgisonline.com/ArcGIS/rest/services/$gps_base$/MapServer/tile/{z}/{y}/{x}</option>
+        <option name="mapping.tileLayer.url">$gps_url$</option>
         <option name="mapping.tileLayer.minZoom">2</option>
         <option name="mapping.tileLayer.maxZoom">18</option>
-        <option name="mapping.tileLayer.attribution">Tiles © Esri — Esri, Maxar, Earthstar Geographics, HERE, Garmin, OpenStreetMap contributors</option>
+        <option name="mapping.tileLayer.attribution">$gps_attr$</option>
         <option name="mapping.map.center">(-34.6361,-58.3991)</option>
         <option name="mapping.map.zoom">17</option>
+        <option name="mapping.markerLayer.markerOpacity">0.85</option>
+        <option name="mapping.markerLayer.markerMinSize">8</option>
+        <option name="mapping.markerLayer.markerMaxSize">22</option>
+        <option name="mapping.showTiles">1</option>
+        <option name="drilldown">none</option>
+        <option name="height">420</option>
+      </map>
+      <!-- "Minimal" = the map this panel first had (7b91e54): no tile options at all, so Splunk's
+           own default basemap, which follows the dark theme. It cannot be one more URL in the
+           token above: a token cannot restore "no option", and pointing the Esri map at
+           splunk-tiles-dark drew nothing (2026-10-07). So it is its own element, shown instead.
+           Its tiles end around city level; that is the trade-off for the look. -->
+      <map depends="$gps_dark$">
+        <search>
+          <query>index=go2-robot-data sourcetype=robot:gps fix&gt;0 lat=* lon=*
+| geostats latfield=lat longfield=lon maxzoomlevel=18 count</query>
+          <earliest>$tr.earliest$</earliest>
+          <latest>$tr.latest$</latest>
+          <refresh>30s</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="mapping.type">marker</option>
+        <option name="mapping.map.center">(-34.6361,-58.3991)</option>
+        <!-- Zoom 7 and max 7: Splunk's own tiles end there. The original's zoom 15 only worked
+             because the map was visible at load and Leaflet clamped it; shown later by the
+             selector, it stayed at 15 over no tiles — a blank map with the dot (2026-10-07). -->
+        <option name="mapping.map.zoom">7</option>
+        <option name="mapping.tileLayer.maxZoom">7</option>
         <option name="mapping.markerLayer.markerOpacity">0.85</option>
         <option name="mapping.markerLayer.markerMinSize">8</option>
         <option name="mapping.markerLayer.markerMaxSize">22</option>
@@ -919,35 +1086,28 @@
     </panel>
     <panel>
       <title>Estado del GPS</title>
-      <table>
-        <search>
-          <query>index=go2-robot-data sourcetype=robot:gps
-| head 1
-| append [| makeresults | eval fix=-1]
-| head 1
-| eval Fix=case(fix=-1,"sin datos (el lector no envió nada en 24 h)",fix&gt;=2,"DGPS",fix=1,"GPS",true(),"sin fix"),
-       "Latitud"=if(fix&gt;0,round(lat,6),"—"), "Longitud"=if(fix&gt;0,round(lon,6),"—"),
-       "Satélites (usados / a la vista)"=coalesce(sats_used,"—")." / ".coalesce(sats_view,"—"),
-       HDOP=coalesce(round(hdop,1),"—"),
-       "Altura (m)"=coalesce(round(alt_m,0),"—"), "Velocidad (km/h)"=coalesce(round(speed_kmh,1),"—"),
-       "Antigüedad"=if(fix=-1,"—",tostring(round(now()-_time,0))." s"),
-       "Google Maps"=if(fix&gt;0,"https://www.google.com/maps?q=".lat.",".lon,"—"),
-       "OpenStreetMap"=if(fix&gt;0,"https://www.openstreetmap.org/?mlat=".lat."&amp;mlon=".lon."#map=18/".lat."/".lon,"—")
-| table Fix "Latitud" "Longitud" "Satélites (usados / a la vista)" HDOP "Altura (m)" "Velocidad (km/h)" "Antigüedad" "Google Maps" "OpenStreetMap"
-| transpose 0 column_name=Campo
-| rename "row 1" as Valor</query>
-          <earliest>-24h</earliest>
-          <latest>now</latest>
-          <refresh>15s</refresh>
-          <refreshType>delay</refreshType>
-        </search>
-        <option name="count">12</option>
-        <option name="drilldown">none</option>
-        <option name="wrap">true</option>
-        <format type="color" field="Valor">
-          <colorPalette type="map">{"GPS":#53a051,"DGPS":#53a051,"sin fix":#dc4e41}</colorPalette>
-        </format>
-      </table>
+      <html tokens="true">
+        <div id="gpsCard">
+          <div class="top">
+            <span class="pill $gps_cls$">$gps_estado$</span>
+            <div class="age"><div>último dato</div><div>$gps_edad$</div></div>
+          </div>
+          <div>
+            <div class="k">Posición</div>
+            <div class="$gps_pcls$"><div>$gps_lat$</div><div>$gps_lon$</div></div>
+          </div>
+          <div class="grid">
+            <div class="cell"><div class="k">Satélites</div><div class="v">$gps_sat$<span class="sub">$gps_satsub$</span></div></div>
+            <div class="cell"><div class="k">HDOP</div><div class="v">$gps_hdop$<span class="sub">$gps_hdq$</span></div></div>
+            <div class="cell"><div class="k">Altura</div><div class="v">$gps_alt$<span class="sub">$gps_altu$</span></div></div>
+            <div class="cell"><div class="k">Velocidad</div><div class="v">$gps_vel$<span class="sub">$gps_velu$</span></div></div>
+          </div>
+          <div class="links $gps_lnk$">
+            <a href="$gps_gm$" target="_blank" rel="noopener">Abrir en Google Maps ↗</a>
+            <a href="$gps_osm$" target="_blank" rel="noopener">Abrir en OpenStreetMap ↗</a>
+          </div>
+        </div>
+      </html>
     </panel>
   </row>
   <row>
