@@ -10,6 +10,22 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 
 ---
 
+## 2026-10-07 · 14:21–14:25 ART — el `/drive` con YOLO prendido en `/live` (plan YOLO §5)
+
+**Config:** YOLO emparejado en el navegador (transporte intra en `/live`, `POST /api/detect`),
+`/drive` en intra 640×360 QP38. LTE Movistar. `both_probe.py` sobre `/ws/view-h264`, 8 ventanas
+de 30 s; si YOLO estaba prendido se lee del CPU de iacore en cada ventana (235 ticks detectando
+contra ~24 en reposo), porque el backend loguea a una terminal.
+
+| ventana | YOLO | p50 | p95 | p99 | fps |
+|---|---|---|---|---|---|
+| w1 | **prendido** | **92** | **116** | **128** | 13.20 |
+| w2-w8 | apagado | 82-103 (mediana 90) | 105-131 (mediana 117) | 125-217 | 12.90-13.37 |
+
+**La latencia del `/drive` no se mueve con YOLO prendido** — lo que pedía el §5 del plan, y lo
+esperable: con el emparejamiento en el navegador, YOLO no está en el camino del `/drive`.
+Salvedad: la ventana con YOLO prendido es una sola (30 s).
+
 ## 2026-10-07 · 12:40–12:55 ART — el multicast del `Fa0/0/1`: lo generábamos nosotros
 
 **Síntoma:** el `Fa0/0/1` del IR1101 (VLAN 123, ROBOT-GO2) en 96.66 de 100 Mbps en el tablero.
