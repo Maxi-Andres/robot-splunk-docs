@@ -22,16 +22,32 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 | **`videohub_jpeg_stream` pausado (SIGSTOP)** | **0 Mbps a los 2 s**; vuelve a 95 al reanudarlo |
 | probe con `AllowMulticast=spdp`, a la par del lector normal | 188 Mbps: multicast **igual** (~8450), unicast **+8500 pkt/s** — el videohub le contestó por unicast · 825 imágenes en 20 s, 0 fallas, 131 KB promedio, 41 llamadas/s |
 
-**Causa:** `ChannelFactory::Init(0, nic)` le da a CycloneDDS la config del SDK con el multicast
-prendido, así que el lector de respuestas del `VideoClient` anuncia `239.255.0.1:7401` y PC1 le
-manda cada JPEG a ese grupo. El switch interno del Go2 no hace snooping: el multicast sale por
-TODOS los puertos, incluido el del IR1101. Nada en el router puede frenarlo (ya llegó por el
-cable), pero no hace falta: se corta en el origen.
+**Causa:** cada `GetImageSample` es un JPEG entero (~128 KB, confirmado leyendo los fragmentos
+RTPS del grupo: `FF D8` en el byte 36) que el videohub de PC1 (`.161`, escritor `0x603`) manda a
+**todos** los lectores del tópico de respuesta, no sólo al que preguntó. El switch interno del Go2
+no hace snooping: el multicast sale por todos los puertos, incluido el del IR1101. Y lo pedíamos
+**a lo bruto: ~89 llamadas/s para ~14 cuadros nuevos** — el 84% del bus eran repeticiones.
 
-**Arreglo (código, `videohub_jpeg_stream.cpp`):** `Init(JsonMap{DomainId, Config})` con el mismo
-XML del SDK más `<AllowMulticast>spdp</AllowMulticast>` — multicast sólo para el descubrimiento,
-datos por unicast. Falta: commit + `git pull` + `./build.sh` + `restart robot-video` en el robot,
-y ver el `Fa0/0/1` bajar. El G1 corre el mismo binario y tiene el mismo flood sobre su WiFi.
+**Lo que NO alcanzó: unicast.** Con `Init(JsonMap{DomainId, Config})` y
+`<AllowMulticast>spdp</AllowMulticast>` nuestro lector dejó de anunciar multicast (verificado en
+el SPDP: nuestro participante sin locator multicast) y el videohub nos contestó por unicast…
+**y siguió mandando la copia multicast**: 8400 pkt/s multicast + 8500 unicast, el Jetson en
+187 Mbps. Hay OTRO lector de ese tópico que pide multicast, y no es nuestro (ni la telemetría ni
+el relay usan `VideoClient`): es un servicio de PC1 (24 participantes DDS ahí, casi todos con
+locator multicast), y PC1 no tiene SSH. Revertido.
+
+**El arreglo: pedir al ritmo de la cámara** (`REPOLL_MS`, default 50, en
+`videohub_jpeg_stream.cpp`): después de un cuadro NUEVO, esperar 50 ms antes de volver a pedir.
+Probe de 20 s en el Go2, al lado del lector real:
+
+| `REPOLL_MS` | llamadas/s | cuadros nuevos/s | llamadas por cuadro |
+|---|---|---|---|
+| 0 (lo de antes) | 42.8 | 14.30 | 3.0 |
+| **50** | **15.8** | **14.35** | **1.1** |
+| 60 | 13.5 | 13.50 — **pierde cuadros** (el período de ~70 ms tiene jitter) | 1.0 |
+
+Esperado en el bus: de ~89 a ~16 llamadas/s → **de ~93 a ~16 Mbps** en el `Fa0/0/1`. Falta:
+commit + pull + `./build.sh` + `restart robot-video`, y medirlo.
 
 **Costo del flood que sí se midió:** cero pérdida Jetson → router (300 pings de 1300 B y 300 de
 56 B, 0%), RTT de ese salto 4.6 ms promedio / 11 máx (a PC1, dentro del robot: 2.0 / 6.5). O sea
@@ -108,9 +124,16 @@ que ahora hay tiempo para repararla. **Costo:** ~850 ms más en todo lo que sale
 (Frigate, WHEP del bridge → YOLO/VLM, botón H.264/WebRTC). El `/drive` va por el intra y no lo
 paga. `BITRATE=1300000` vuelve al `video.env` del robot.
 
-**12:35 — recortado a `latency=900`** a pedido del operador (a ojo la mejora se ve). Los 12
-minutos a 1000: 93300 paquetes, 22.5% perdidos en el aire, **0 descartados**, RTT suavizado
-43-77 ms.
+**Recortes a pedido del operador**, mismo enlace LTE, NVR a 1.3 Mbps:
+
+| `latency` | ventana | paquetes | perdidos en el aire | **descartados** | peor ventana |
+|---|---|---|---|---|---|
+| 1000 | 12:23–12:35 | 93300 | 22.5% | **0** | 0% |
+| **900** | 12:36–12:46 | 65850 | 23.0% | **2** | 0.1% |
+| 800 | 12:58–13:06 | 58938 | 21.5% | **21** | 0.8% |
+
+**Queda en 900**: 800 ya descarta diez veces más, y cada descarte puede ensuciar la imagen
+hasta el próximo keyframe.
 
 **G1:** su receptor (`srt-bridge-g1.service`) sigue en 150 a propósito. Por WiFi midió 3.7% de
 pérdida en el aire, **toda** retransmitida, 0 descartes (2026-10-01): no tiene el problema. Si
@@ -305,9 +328,9 @@ y **manejarlo para ver si se siente el tirón** — necesitan a alguien al joyst
 
 ## 2026-09-21 — los 92 Mbps del bus interno del Go2: qué son y si molestan
 
-> ❌ **REFUTADO el 2026-10-07 — los 92 Mbps son NUESTROS, no firmware de Unitree.** Son las
-> respuestas a `GetImageSample` de `videohub_jpeg_stream` (un JPEG de ~131 KB por llamada,
-> ~40-90 llamadas/s), que CycloneDDS manda al grupo multicast porque nuestro lector lo anuncia.
+> ❌ **REFUTADO el 2026-10-07 — los 92 Mbps los disparamos NOSOTROS, no son firmware solo.** Son
+> las respuestas a `GetImageSample` de `videohub_jpeg_stream` (un JPEG de ~128 KB por llamada,
+> ~89 llamadas/s), que el videohub copia al grupo multicast para un lector suyo en PC1.
 > Pausar ese proceso llevó el bus de 92 a **0 Mbps en 2 s**. Esta sección lo atribuyó a
 > `video_hub` porque apagar el videohub también apaga nuestras llamadas. Ver la entrada
 > "2026-10-07 · el multicast del Fa0/0/1" más arriba.
