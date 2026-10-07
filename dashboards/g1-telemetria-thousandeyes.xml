@@ -19,6 +19,7 @@
        unit. Generated with scratch tooling; joint dots are projected from the model, so they
        sit on the real joint axes. -->
   <init>
+    <set token="cargando">1</set>
     <!-- The robot's ThousandEyes agent, in ONE place. Every TE panel filters by it. -->
     <set token="te_agent">g1-jetson-01</set>
     <!-- Test that measures THE ROBOT'S LINK. Same convention as the Go2 (letter A = robot
@@ -336,6 +337,11 @@
         <set token="right_shoulder_z">$result.right_shoulder_z$</set>
         <set token="right_wrist_z">$result.right_wrist_z$</set>
         <set token="waist_z">$result.waist_z$</set>
+        <unset token="cargando"></unset>
+      </condition>
+      <!-- Robot off = no results: nothing to paint, but the loading pill must still go. -->
+      <condition>
+        <unset token="cargando"></unset>
       </condition>
     </done>
   </search>
@@ -443,6 +449,24 @@
       </default>
     </input>
   </fieldset>
+  <!-- Loading indicator: a floating pill while the dashboard's first data is on its way.
+       `cargando` is set in <init> and unset by the motors search's <done> — the search the
+       robot picture hangs on, and one that finishes even with the robot off (0 results), so
+       the pill always goes away. It does not come back on the periodic refreshes. The row
+       collapses to zero height so the pill floats instead of pushing the dashboard down. -->
+  <row depends="$cargando$">
+    <panel>
+      <html>
+        <style>
+          @keyframes cargandoGiro{to{transform:rotate(360deg)}}
+          #cargandoAviso{position:fixed;top:72px;left:50%;transform:translateX(-50%);z-index:1000;display:flex;align-items:center;gap:10px;padding:8px 18px;background:#1a1c20;border:1px solid #4a8fd4;border-radius:999px;color:#dcdcdc;font:13px Roboto,Arial,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.55);}
+          #cargandoAviso .giro{width:14px;height:14px;border:2px solid #4a8fd4;border-top-color:transparent;border-radius:50%;animation:cargandoGiro .8s linear infinite;}
+          .dashboard-row:has(#cargandoAviso){height:0 !important;min-height:0 !important;margin:0 !important;padding:0 !important;overflow:visible !important;}
+        </style>
+        <div id="cargandoAviso"><span class="giro"></span>Cargando datos…</div>
+      </html>
+    </panel>
+  </row>
   <row>
     <panel>
       <html>
