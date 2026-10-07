@@ -10,6 +10,33 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 
 ---
 
+## 2026-10-07 · 12:40–12:55 ART — el multicast del `Fa0/0/1`: lo generábamos nosotros
+
+**Síntoma:** el `Fa0/0/1` del IR1101 (VLAN 123, ROBOT-GO2) en 96.66 de 100 Mbps en el tablero.
+
+**Medido en el Jetson** (`/sys/class/net/eth0/statistics`, ventanas de 2-5 s):
+
+| prueba | RX del Jetson |
+|---|---|
+| normal | 92-93 Mbps · ~8400 pkt/s multicast · ~110 unicast |
+| **`videohub_jpeg_stream` pausado (SIGSTOP)** | **0 Mbps a los 2 s**; vuelve a 95 al reanudarlo |
+| probe con `AllowMulticast=spdp`, a la par del lector normal | 188 Mbps: multicast **igual** (~8450), unicast **+8500 pkt/s** — el videohub le contestó por unicast · 825 imágenes en 20 s, 0 fallas, 131 KB promedio, 41 llamadas/s |
+
+**Causa:** `ChannelFactory::Init(0, nic)` le da a CycloneDDS la config del SDK con el multicast
+prendido, así que el lector de respuestas del `VideoClient` anuncia `239.255.0.1:7401` y PC1 le
+manda cada JPEG a ese grupo. El switch interno del Go2 no hace snooping: el multicast sale por
+TODOS los puertos, incluido el del IR1101. Nada en el router puede frenarlo (ya llegó por el
+cable), pero no hace falta: se corta en el origen.
+
+**Arreglo (código, `videohub_jpeg_stream.cpp`):** `Init(JsonMap{DomainId, Config})` con el mismo
+XML del SDK más `<AllowMulticast>spdp</AllowMulticast>` — multicast sólo para el descubrimiento,
+datos por unicast. Falta: commit + `git pull` + `./build.sh` + `restart robot-video` en el robot,
+y ver el `Fa0/0/1` bajar. El G1 corre el mismo binario y tiene el mismo flood sobre su WiFi.
+
+**Costo del flood que sí se midió:** cero pérdida Jetson → router (300 pings de 1300 B y 300 de
+56 B, 0%), RTT de ese salto 4.6 ms promedio / 11 máx (a PC1, dentro del robot: 2.0 / 6.5). O sea
+que no rompía nada; ocupaba el puerto y la CPU de PC1 y del Jetson.
+
 ## 2026-10-07 · 11:40–11:46 ART — MJPEG contra H.264 todo-intra, re-medido sobre LTE
 
 **Por qué:** se volvió a prender el MJPEG y el H.264 intra "se notaba con más latencia".
@@ -277,6 +304,13 @@ y **manejarlo para ver si se siente el tirón** — necesitan a alguien al joyst
 ---
 
 ## 2026-09-21 — los 92 Mbps del bus interno del Go2: qué son y si molestan
+
+> ❌ **REFUTADO el 2026-10-07 — los 92 Mbps son NUESTROS, no firmware de Unitree.** Son las
+> respuestas a `GetImageSample` de `videohub_jpeg_stream` (un JPEG de ~131 KB por llamada,
+> ~40-90 llamadas/s), que CycloneDDS manda al grupo multicast porque nuestro lector lo anuncia.
+> Pausar ese proceso llevó el bus de 92 a **0 Mbps en 2 s**. Esta sección lo atribuyó a
+> `video_hub` porque apagar el videohub también apaga nuestras llamadas. Ver la entrada
+> "2026-10-07 · el multicast del Fa0/0/1" más arriba.
 
 El medidor del IR1101 marcaba **97.81 de 100 Mbps** en `Fa0/0/1` (VLAN 123, ROBOT-GO2) y la
 pregunta era de dónde salían, porque lo nuestro son ~2.5 Mbps.
