@@ -881,15 +881,24 @@
       <map>
         <search>
           <query>index=go2-robot-data sourcetype=robot:gps fix&gt;0 lat=* lon=*
-| geostats latfield=lat longfield=lon maxzoomlevel=18 count</query>
+| geostats latfield=lat longfield=lon maxzoomlevel=20 count</query>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
           <refresh>30s</refresh>
           <refreshType>delay</refreshType>
         </search>
         <option name="mapping.type">marker</option>
-        <option name="mapping.map.center">(-34.60,-58.38)</option>
-        <option name="mapping.map.zoom">15</option>
+        <!-- Splunk's built-in tiles stop at a low zoom (city level). CARTO's dark OSM tiles go to
+             street level (z20) and match the dark theme. The viewer's browser fetches them, so
+             https://*.basemaps.cartocdn.com must be in Settings -> Dashboards Trusted Domains,
+             like Frigate's camera. Centre = the first fix, 2026-10-07 (-34.636105, -58.399052). -->
+        <option name="mapping.tileLayer.url">https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png</option>
+        <option name="mapping.tileLayer.subdomains">[a,b,c,d]</option>
+        <option name="mapping.tileLayer.minZoom">2</option>
+        <option name="mapping.tileLayer.maxZoom">20</option>
+        <option name="mapping.tileLayer.attribution">© OpenStreetMap contributors © CARTO</option>
+        <option name="mapping.map.center">(-34.6361,-58.3991)</option>
+        <option name="mapping.map.zoom">17</option>
         <option name="mapping.markerLayer.markerOpacity">0.85</option>
         <option name="mapping.markerLayer.markerMinSize">8</option>
         <option name="mapping.markerLayer.markerMaxSize">22</option>
