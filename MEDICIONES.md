@@ -31,6 +31,59 @@ offset (±RTT/2, acá hasta ±41 ms) se cancela; entre corridas, no.
 | A · cuadros / banda / peso | 9.79 fps · 0.554 Mbps · 7.1 kB | **13.70 fps · 0.337 Mbps · 3.1 kB** |
 | A · cortes > 250 ms | 6 "held" (peor 475 ms) | 1 held + 2 missing (peor 337) |
 | B · sin MJPEG en el enlace (bridge en `test`), 60 s | — | 111 / 136 / 198 / 426 ms · 14.05 fps · 0.333 Mbps |
+| C · 11:59, MJPEG fuera del enlace, intra **QP38** (480×270, en vivo), NVR igual, 90 s | — | 82 / 141 / 357 / 395 ms · 12.93 fps · 0.406 Mbps · 3.9 kB · 1 held + **15 missing** |
+
+**D · 12:05, después de `restart robot-video` con intra 640×360 QP38 y NVR `BITRATE=1300000`,
+90 s** (ping 17.9 / 50.8 / 333, mdev 26, 0%): intra **84 / 109 / 135 / 519 ms · 13.68 fps ·
+0.683 Mbps · 6.2 kB**, 3 held + 2 missing. **El drive a 640×360 queda.**
+
+**El NVR a 1.3 Mbps, NO** — `srt-bridge.service` (stats JSON de `srt-live-transmit`, ventanas
+de ~20-30 s):
+
+| NVR | "perdidos" (se retransmiten) | **descartados (no llegan)** |
+|---|---|---|
+| 0.79 Mbps, 11:59–12:04 | 21-36% | **1-5%** (un pico de 13%) |
+| 1.24 Mbps, 12:05–12:11 | 19-44% | **4-22%, típico 10-15%** |
+
+La subida LTE con el ICMP en 0% igual pierde (o reordena) ~1 de cada 4 paquetes UDP de SRT, y
+el presupuesto de 150 ms no alcanza para recuperarlos cuando el caudal sube: los descartes se
+triplican. Vuelto a `BITRATE=800000` (falta reiniciar `robot-video`). **Más calidad en el NVR
+sobre este enlace no se compra con bitrate**; las perillas que quedan son keyframes más
+espaciados o perfil High al mismo caudal, o `LATENCY` mayor (más retraso, que en el NVR no
+molesta).
+
+### 12:22 — la grabación corrupta y violeta de Frigate era SRT descartando, arreglado con `latency=1000`
+
+**Síntoma (capturas del operador, Frigate 10:36–10:51):** bloques rotos y una imagen que se va
+poniendo violeta con los minutos, y "No Preview Found". En los logs de Frigate:
+`decode_slice_header error`, `corrupt decoded frame`, y el segmento de las 10:51 descartado.
+
+**Causa, medida:** el receptor SRT (`srt-bridge.service`, `latency=150`) descartó en esa ventana
+**20-49% de los paquetes** (10:31–10:33, con la imagen sana: 0%). Un keyframe 1080p pesa
+24-33 KB ≈ 22 paquetes SRT (medido con `ffprobe` sobre `rtsp://…/robot`: IDR cada 15 cuadros,
+P de 3-14 KB): con un solo paquete perdido el IDR no sirve y el decodificador sigue prediciendo
+de un cuadro roto — **el error del croma se acumula y la imagen deriva a violeta** hasta un IDR
+que llegue entero, cosa que con 20-49% de descarte casi no pasa. El salto local `:9000` →
+mediamtx NO es: 0 descartes en el socket (`/proc/net/udp`).
+
+**Arreglo:** `latency=150 → 1000` en el receptor de HQ (SRT negocia el mayor; el robot no se
+toca). Resultado inmediato, con el NVR todavía a **1.3 Mbps**:
+
+| | latency 150 | **latency 1000** |
+|---|---|---|
+| NVR 0.8 Mbps, descartes | 1-5% quieto · 20-49% con la subida ocupada | — |
+| NVR 1.3 Mbps, descartes | 10-15% (picos 22%) | **0.0% en todas las ventanas** (12:23–12:25) |
+| "perdidos" (recuperados por ARQ) | — | 20-26% · `msBuf` ~920 ms |
+| intra del `/drive`, mismo minuto | — | 100 / 125 / 143 / 170 ms · 13.3 fps · 0.61 Mbps |
+
+La pérdida en el aire sigue (~1 de cada 4 paquetes UDP con el ICMP en 0%); lo que cambió es
+que ahora hay tiempo para repararla. **Costo:** ~850 ms más en todo lo que sale de mediamtx
+(Frigate, WHEP del bridge → YOLO/VLM, botón H.264/WebRTC). El `/drive` va por el intra y no lo
+paga. `BITRATE=1300000` vuelve al `video.env` del robot.
+
+C corrió con el enlace PEOR: ping 18.5 / **75.4** / 388 ms, **mdev 77** (A: 53 / mdev 29), 0%
+de pérdida ICMP; `h264_udp_send_drops` 7 en el robot. La mediana no subió con el QP38; la cola
+y los 15 cuadros perdidos van con el jitter del LTE en ese momento, no con el QP.
 
 B no se compara con A: su offset salió +35 ms con RTT 82 (A: +18 con 72), o sea dentro del
 error. Lo que sí dice B: sacar el MJPEG no le cambia nada medible al H.264 con este enlace.
