@@ -188,6 +188,8 @@
       | stats values(*) as *</query>
     <earliest>-60m</earliest>
     <latest>now</latest>
+    <refresh>10s</refresh>
+    <refreshType>delay</refreshType>
     <done>
       <condition match="'job.resultCount' &gt; 0">
         <set token="FL_hip_t">$result.FL_hip_t$</set>
@@ -1523,6 +1525,8 @@
 | fields Uptime</query>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="drilldown">none</option>
         <option name="underLabel">horas de la sesión activa</option>
@@ -1539,6 +1543,8 @@
 | stats dc(spi) as SAs</query>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="drilldown">none</option>
         <option name="underLabel">security associations IPsec en curso</option>
@@ -1570,6 +1576,8 @@
 | rename iface as "Interfaz", local_net as "Red local", remote_net as "Red remota", sentido as "Sentido", trafico as "Tráfico", transform as "Transform", pkts as "Paquetes", peer as "Peer"</query>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">none</option>
@@ -1627,6 +1635,8 @@
           <query>index=te_agents sourcetype="silk:router:iface" iface="Gi0/0/0" | eval mbps=round((in_bps+out_bps)/1000000,2) | stats latest(mbps) as Mbps</query>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="charting.chart">radialGauge</option>
         <option name="charting.chart.style">minimal</option>
@@ -1644,6 +1654,8 @@
           <query>index=te_agents sourcetype="silk:router:iface" iface="Vl40" | eval mbps=round((in_bps+out_bps)/1000000,2) | stats latest(mbps) as Mbps</query>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="charting.chart">radialGauge</option>
         <option name="charting.chart.style">minimal</option>
@@ -1661,6 +1673,8 @@
           <query>index=te_agents sourcetype="silk:router:iface" iface="Ce0/1/0" | eval mbps=round((in_bps+out_bps)/1000000,2) | stats latest(mbps) as Mbps</query>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="charting.chart">radialGauge</option>
         <option name="charting.chart.style">minimal</option>
@@ -1678,6 +1692,8 @@
           <query>index=te_agents sourcetype="silk:router:iface" iface="Fa0/0/1" | eval mbps=round((in_bps+out_bps)/1000000,2) | stats latest(mbps) as Mbps</query>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
+          <refresh>60s</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="charting.chart">radialGauge</option>
         <option name="charting.chart.style">minimal</option>

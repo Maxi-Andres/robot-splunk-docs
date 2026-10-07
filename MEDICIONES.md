@@ -46,8 +46,19 @@ Probe de 20 s en el Go2, al lado del lector real:
 | **50** | **15.8** | **14.35** | **1.1** |
 | 60 | 13.5 | 13.50 — **pierde cuadros** (el período de ~70 ms tiene jitter) | 1.0 |
 
-Esperado en el bus: de ~89 a ~16 llamadas/s → **de ~93 a ~16 Mbps** en el `Fa0/0/1`. Falta:
-commit + pull + `./build.sh` + `restart robot-video`, y medirlo.
+**Desplegado 13:08 (`c2d9488`) y medido:**
+
+| | antes (flat-out) | **`REPOLL_MS=50`** |
+|---|---|---|
+| RX del Jetson (= lo que inunda el `Fa0/0/1`) | 92-93 Mbps · ~8400 pkt/s multicast | **29-31 Mbps** · ~2750 pkt/s multicast |
+| cuadros que toma el lector (journal, 77 s) | ~14.3 | **14.26** — ninguno perdido |
+| intra en HQ, 30 s | 13.3-13.7 fps, p50 84-100 | 12.83 fps, **p50 81 / p95 106 / p99 154** |
+| `nvr_dropped` | — | +0 en 32 s |
+
+**−68% en el bus, sin perder cuadros ni sumar latencia.** Quedan ~30 Mbps en vez de los ~16
+del probe: el lector real hace algo más de una llamada por cuadro. Lo que resta es el piso de
+ESTE diseño (cada cuadro nuevo viaja una vez por multicast mientras el lector de PC1 exista);
+bajarlo más sería pedir menos cuadros o achicarlos en el origen.
 
 **Costo del flood que sí se midió:** cero pérdida Jetson → router (300 pings de 1300 B y 300 de
 56 B, 0%), RTT de ese salto 4.6 ms promedio / 11 máx (a PC1, dentro del robot: 2.0 / 6.5). O sea
