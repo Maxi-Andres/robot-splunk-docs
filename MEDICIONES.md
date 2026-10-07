@@ -10,6 +10,44 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 
 ---
 
+## 2026-10-07 · 11:40–11:46 ART — MJPEG contra H.264 todo-intra, re-medido sobre LTE
+
+**Por qué:** se volvió a prender el MJPEG y el H.264 intra "se notaba con más latencia".
+**Enlace: LTE Movistar** (`AS22927 Telefonica de Argentina`, por `ip-api.com` desde el robot;
+`ipinfo.io` no responde desde ahí). Ping 450 × 0.2 s: **18.7 / 53.2 / 325 ms, mdev 29, 0%
+de pérdida**. Robot en `94a9c2f`: MJPEG 480×270 q25 `fps_cap=10`; `/h264` todo-intra QP40
+480×270 por UDP; NVR por SRT `BITRATE=800000` `LATENCY=150`. **Las tres ramas corriendo.**
+
+**Método:** las DOS vistas de manejo leídas a la vez a la salida del backend (`/ws/view` y
+`/ws/view-h264`, lo mismo que recibe `/drive`), las dos desde el MISMO instante del robot
+(`t_in`: el MJPEG lo lleva en el COM, el H.264 como capture time). Offset de reloj por el
+round trip más corto (regla de `field_probe.py`). Probe en el scratchpad de la sesión
+(`both_probe.py`), no en el repo. **Comparar ramas dentro de una misma corrida**: el error del
+offset (±RTT/2, acá hasta ±41 ms) se cancela; entre corridas, no.
+
+| | **MJPEG** | **H.264 todo-intra** |
+|---|---|---|
+| A · 3 ramas, 90 s · latencia `t_in` → backend p50 / p95 / p99 / máx | 96 / 149 / 301 / 420 ms | **94 / 120 / 140 / 245 ms** |
+| A · cuadros / banda / peso | 9.79 fps · 0.554 Mbps · 7.1 kB | **13.70 fps · 0.337 Mbps · 3.1 kB** |
+| A · cortes > 250 ms | 6 "held" (peor 475 ms) | 1 held + 2 missing (peor 337) |
+| B · sin MJPEG en el enlace (bridge en `test`), 60 s | — | 111 / 136 / 198 / 426 ms · 14.05 fps · 0.333 Mbps |
+
+B no se compara con A: su offset salió +35 ms con RTT 82 (A: +18 con 72), o sea dentro del
+error. Lo que sí dice B: sacar el MJPEG no le cambia nada medible al H.264 con este enlace.
+
+**Capacidad, `iperf3` 10 s con el video encima:** robot → HQ **1.04 Mbps** (86 retrans);
+HQ → robot **22.5 Mbps**. La subida es el recurso escaso: el video ocupa ~1.7 (0.55 MJPEG +
+0.34 intra + ~0.8 NVR) de ~2.7 totales. Las stats de SRT del NVR no se leyeron (la API de
+mediamtx no respondió en `:9997`).
+
+**Lectura:** hasta el backend, **el H.264 intra no llega más tarde: llega igual en la mediana
+y mucho mejor en la cola**, con 40% más cuadros y 40% menos banda. Si en pantalla se nota más
+lento, lo que queda es el lado del navegador (`VideoDecoder` + canvas), que este probe no ve;
+o un momento malo del LTE (máx de ping 325 ms). **Decisión del operador: MJPEG retirado del
+`/drive` del Go2** (botón tachado en el front). **11:50: y fuera del enlace** — el bridge pasó
+a leer el Go2 por WHEP de mediamtx (`GO2_STREAM_URL`), y el `:8093` del robot quedó con
+`clients: 0`. YOLO y el VLM siguen andando, sobre el stream del NVR.
+
 ## 2026-10-01 · 10:38–10:56 ART — primer video del **G1**, por WiFi
 
 **Enlace:** WiFi "ROBOTS ONLY" (VLAN 51), PC2 `wlan0` a **−48 dBm, 5805 MHz, 286.7 Mbit/s HE-MCS 11
