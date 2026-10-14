@@ -10,6 +10,73 @@ Sin eso no es una medición, es una anécdota. Lo más nuevo arriba.
 
 ---
 
+## 2026-10-14 · 10:33–10:42 ART — "hoy el LTE anda mal": medido contra el 07-10
+
+**Enlace: LTE Movistar**, verificado desde el robot con `ip-api.com`: `AS22927 Telefonica de
+Argentina`, ISP "Telefónica Móviles Argentina S.A. (Movistar Argentina)", IP pública
+`200.68.199.15`. El Jetson arrancó ~10:20 y el SRT del NVR conectó a las 10:28:20: hay ~14 min
+de datos de hoy, no un día entero.
+
+**Config (sin tocar nada, solo medición):** robot en `1339b28` (video) / `bc79f2e` (relay).
+NVR por SRT `BITRATE=1300000`, `NVR_FPS=15`, `IDR_FRAMES=15`, `srt-bridge.service` con
+`latency=900`. Drive intra **640×360 QP38** por UDP (`h264_udp_leases: 1`,
+`h264_udp_send_drops: 0`). MJPEG `clients: 0` (fuera del enlace; el bridge lee WHEP). Fuente
+**14.3 fps** en el journal del robot (`[mjpeg] … 14.3 fps in`), `nvr_dropped` quieto en 108
+(arranque). **Misma config que el 07-10 desde las 13:10**, que es la línea de base.
+
+| | **hoy 14-10** | **07-10 (base, misma config)** |
+|---|---|---|
+| ping 450 × 0.2 s, 10:33–10:34 | 14.4 / 54.9 / **1270** ms, mdev **113**, 0% · p50 38 / p95 69 / p99 698 | 18.7 / 53.2 / 325, mdev 29, 0% (11:40) |
+| ping 300 × 0.2 s, 10:37–10:38 | 15.2 / 40.9 / 277 ms, mdev 21, 0% · p50 39 / p95 63 | 17.9 / 50.8 / 333, mdev 26 (12:05) |
+| ping 600 × 0.2 s, 10:39–10:41 | 14.8 / 40.5 / 263 ms, mdev 19, 0% · p50 39 / p95 62 / p99 77 | — |
+| `iperf3` 10 s robot → HQ, con el video encima (10:35:52) | **1.06 Mbps** emisor / 0.94 receptor, **94 retrans**; dos segundos en 0 | 1.04 Mbps, 86 retrans |
+| `iperf3` 10 s HQ → robot (`-R`, 10:36:10) | **22.3 Mbps** recibidos (24.3 enviados), 92 retrans | 22.5 Mbps |
+| **SRT del NVR**, perdidos en el aire (régimen, sin el primer minuto) | **35% de la sesión; 40-45% por ventana desde 10:33** (25-27% las dos primeras) | **24-28%** (9 sesiones, 12:23–15:08) |
+| SRT retransmitidos / tardíos (`belated`) | 50% / 15% | 37-42% / 11-12% |
+| **SRT descartados** (no llegan) | **0.00% en las ventanas quietas**; 2.3% en la de 10:32–10:33 (el pico de 1.3 s), 1.3% en la del `iperf3` · 0.54% en la sesión | 0.00-0.13% |
+| SRT recibido / RTT del SRT (mediana) | 1.13 Mbps / 45 ms | 1.41-1.50 Mbps / 51-62 ms |
+| **Drive intra**, `drive_probe.py 90` (10:34:00) | **12.44 fps** · 0.93 Mbps · **9.3 kB** · latencia **84 / 108 / 402** ms · **30 cortes > 250 ms: 26 missing + 4 held** | 13.68 fps · 0.68 Mbps · 6.2 kB · 84 / 109 / 519 · 2 missing + 3 held (12:05) |
+| **Drive intra**, `drive_probe.py 90` (10:37:27) | **12.59 fps** · 0.84 Mbps · 8.3 kB · **80 / 102 / 269** ms · **22 cortes, los 22 missing** | 12.83-13.37 fps, p50 81-92 (12:40 y 14:21) |
+
+Los SRT por ventana son deltas de los JSON de `srt-live-transmit` (`journalctl --user -u
+srt-bridge`), ~70 s cada una. El robot logueó `SND-DROPPED` del lado emisor: ~4500 paquetes en
+10:29–10:30 (arranque del enlace), 116 a las 10:33 (el pico) y 203 durante el `iperf3` de bajada
+— la bajada saturada atrasa los ACK/NAK del SRT y el emisor tira lo que se le vence.
+
+**Lectura — el enlace NO está peor en capacidad ni en latencia; SÍ pierde más paquetes UDP:**
+
+* **Capacidad igual:** subida 1.06 vs 1.04 Mbps libres encima del video, bajada 22.3 vs 22.5.
+  Mismo techo (~3 Mbps de subida total).
+* **Latencia igual o mejor fuera de un evento:** mediana de ping 38-39 ms, mdev 19-21 en dos
+  de las tres corridas (07-10: mdev 26-29). La latencia del drive 80-84 p50 / 102-108 p95,
+  idéntica al 07-10. **Excepción: un congelamiento de ~1.3 s a las 10:33:08-10:33:10** (12
+  pings seguidos entre 240 y 1270 ms) — coincide con el único descarte grande del SRT y con
+  los `SND-DROPPED` de las 10:33.
+* **Lo que sí empeoró es la pérdida:** el SRT pierde en el aire **~40% contra 24-28%** (≈1.5×)
+  y retransmite 50% contra 37-42%. Con `latency=900` igual lo repara todo (descartes 0 en régimen),
+  así que **la grabación de Frigate no debería ensuciarse**. El que lo paga es el **drive**, que
+  no retransmite: **22-30 cortes de > 250 ms en 90 s, casi todos "missing"** (la fuente da 14.3,
+  así que son cuadros perdidos en el enlace, no la cámara), contra 5 el 07-10 a las 12:05;
+  12.4-12.6 fps contra 12.8-13.7 (3-9% menos cuadros). **Eso es lo que se ve como "anda mal":
+  saltos frecuentes de 3-6 cuadros (~270-430 ms), no lag.**
+* ⚠️ **Confusor: la escena de hoy es más cara.** El intra pesa 8.3-9.3 kB por cuadro (07-10:
+  6.2 kB): 7-8 fragmentos de 1200 B en vez de 6 con una sola paridad por grupo, así que con la
+  misma pérdida por datagrama un cuadro se pierde más seguido. Parte del aumento de "missing"
+  es la escena, no el enlace. La pérdida del SRT (que no depende del peso del cuadro) sí dice
+  que el aire está peor. El SRT recibe 1.13 Mbps contra ~1.45 del 07-10 con el mismo
+  `BITRATE`: la escena del NVR también es distinta, no se compara la banda.
+
+**Veredicto:** peor, pero no en lo que mide `iperf3`: **misma capacidad y misma latencia
+mediana; ~1.5× más pérdida de paquetes UDP** (SRT 40% vs 24-28%), más un congelamiento de 1.3 s
+en 14 min. Para el drive son **~5× más cortes visibles** que la corrida del 07-10 12:05, con
+3-9% menos cuadros; parte de eso es la escena más pesada. No se midió la radio (RSRP/SINR del
+IR1101): sin eso no se sabe si es la celda, la carga de la celda a esta hora o la antena.
+
+**Datos LTE que gastó esta medición:** `iperf3` subida 1.26 MB + bajada 29.1 MB enviados
+(26.5 recibidos) + 1350 pings (~0.2 MB) + 42 `/health` del offset de reloj ≈ **31 MB**, el 94%
+en la bajada. `drive_probe.py` no cuesta enlace (lee del backend, que ya recibe el stream).
+
+
 ## 2026-10-07 · consumo de datos del Go2 sobre LTE, por hora — antes y ahora
 
 **Contexto:** a la tarde el kit se quedó sin datos en la SIM de Movistar (el Go2 y el IR1101
