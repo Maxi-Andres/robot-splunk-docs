@@ -69,6 +69,7 @@ Estado al 2026-09-30. ✅ corriendo · 🟡 escrito, sin desplegar · ❌ falta.
 | Núcleo de seguridad | `src/sender_core.hpp` (compartido): allowlist, clamp, hombre muerto, EOF frena | el mismo |
 | Sender DDS | ✅ `src/go2_command_sender.cpp` — `go2::SportClient` (era `command_sender.cpp`) | 🟡 `src/g1_command_sender.cpp` — `g1::LocoClient` con los FSM **medidos en este robot** |
 | Failover de salida | — (lo resuelve el IR1101) | ✅ `host/g1/uplink-failover.sh` + `.service` |
+| Estado articular (solo lectura) | — | 🟡 `src/g1_joint_bridge.cpp` — `rt/lowstate` + las dos Dex3 → `GET /joints/stream` del relay, para la pestaña Joints de la app (2026-10-13, probado sin robot). Lo arranca el relay solo mientras alguien mira |
 
 El failover vive en este repo porque el relay es lo que más depende del enlace: si la salida
 se cae, el hombre muerto frena al robot, pero el operador pierde el control. Es config del
