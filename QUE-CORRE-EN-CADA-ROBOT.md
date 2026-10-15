@@ -69,7 +69,7 @@ Estado al 2026-09-30. ✅ corriendo · 🟡 escrito, sin desplegar · ❌ falta.
 | Núcleo de seguridad | `src/sender_core.hpp` (compartido): allowlist, clamp, hombre muerto, EOF frena | el mismo |
 | Sender DDS | ✅ `src/go2_command_sender.cpp` — `go2::SportClient` (era `command_sender.cpp`) | 🟡 `src/g1_command_sender.cpp` — `g1::LocoClient` con los FSM **medidos en este robot** |
 | Failover de salida | — (lo resuelve el IR1101) | ✅ `host/g1/uplink-failover.sh` + `.service` |
-| Estado articular (solo lectura) | — | 🟡 `src/g1_joint_bridge.cpp` — `rt/lowstate` → `GET /joints/stream` del relay, para la pestaña Joints de la app (2026-10-13, probado sin robot). Lo arranca el relay solo mientras alguien mira. Las manos no: son Inspire (no Dex3, corregido 2026-10-14) y su servicio no está instalado |
+| Estado articular (solo lectura) | — | 🟡 `src/g1_joint_bridge.cpp` — `rt/lowstate` → `GET /joints/stream` del relay, para la pestaña Joints de la app (2026-10-13, probado sin robot). Lo arranca el relay solo mientras alguien mira. Desde el 2026-10-15 lee también las dos manos **BrainCo Revo 2** por Modbus (`/dev/ttyUSB*`, id 126 izq. / 127 der., 460800; solo lectura). Las manos no eran Dex3 ni Inspire |
 | Mover articulaciones (brazos y cintura) | — | ✅ `src/g1_joint_sender.cpp` + `src/joint_ctl_core.hpp` — escribe `rt/arm_sdk` con PC1 equilibrando; `POST /joints/control` del relay, "Take control" en la pestaña Joints. Un codo probado con el robot el 2026-10-14; desde el 2026-10-15 los 14 del brazo + cintura yaw, todo el rango, con freno por choque y por temperatura (falta probar eso con el robot). Corre solo entre tomar y soltar |
 
 El failover vive en este repo porque el relay es lo que más depende del enlace: si la salida
