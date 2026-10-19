@@ -249,7 +249,7 @@ una de las dos. Hoy el vivo toma "el más nuevo" y la grabación toma "uno cada 
 | `~/Desktop/AI-VL-ecosystem/*` | tres repos separados |
 | `~/Desktop/unitree_ros2` | el fork de Unitree con el executor y el bridge de cámara |
 
-**El usuario commitea y pushea todo a mano.** Nunca correr `git commit` ni `git push`.
+**Desde 2026-10-19 los commits los hace Claude y el push el usuario**, en la rama principal y con la identidad de git del usuario. **NUNCA** con atribución a una IA (ni `Co-Authored-By: Claude`, ni "Generated with Claude Code", ni autor IA), en ningún repo.
 El flujo es: editar acá → él pushea → en el robot `git pull && ./build.sh` → reiniciar el
 servicio.
 
