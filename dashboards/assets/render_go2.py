@@ -14,8 +14,13 @@ projected with the same camera, so the panel's dots sit on the real motors.
 Writes go2_render.png (cropped to the robot) and go2_pts.json (pixel x, y, depth per joint).
 The dashboard embeds the render as robot-go2-render.webp. 2026-10-06.
 """
-import json, sys, numpy as np, mujoco
+import json
+import sys
+
+import mujoco
+import numpy as np
 from PIL import Image
+
 W, H = 2400, 1800
 m = mujoco.MjModel.from_xml_path("menagerie/unitree_go2/go2.xml")
 m.vis.headlight.ambient[:] = [0.42, 0.42, 0.44]
@@ -50,5 +55,7 @@ for leg in ("FL", "FR", "RL", "RR"):
         pts[f"{leg}_{part}"] = [round(float(u), 1), round(float(v), 1), round(float(z), 3)]
 bbox = img.getbbox(); img = img.crop(bbox)
 pts = {k: [v[0] - bbox[0], v[1] - bbox[1], v[2]] for k, v in pts.items()}
-img.save("go2_render.png"); json.dump({"size": img.size, "pts": pts}, open("go2_pts.json", "w"), indent=1)
+img.save("go2_render.png")
+with open("go2_pts.json", "w") as f:
+    json.dump({"size": img.size, "pts": pts}, f, indent=1)
 print(img.size, {k: v[:2] for k, v in pts.items()})

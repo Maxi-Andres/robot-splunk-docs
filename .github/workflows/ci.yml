@@ -16,5 +16,6 @@ jobs:
       - name: Lint
         run: ruff check --output-format=github
       - name: Test
-        working-directory: te-poller
+        # From the root, so every suite runs: it was te-poller/ only, and meraki-hq/'s 27
+        # tests never ran in CI.
         run: pytest -q || [ $? -eq 5 ]
