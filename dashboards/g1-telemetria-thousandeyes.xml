@@ -19,6 +19,8 @@
        unit. Generated with scratch tooling; joint dots are projected from the model, so they
        sit on the real joint axes. -->
   <init>
+    <!-- Under the Batería single until its search answers; "cargando" would read as charging. -->
+    <set token="bat_estado">—</set>
     <set token="cargando">1</set>
     <!-- The robot's ThousandEyes agent, in ONE place. Every TE panel filters by it. -->
     <set token="te_agent">g1-jetson-01</set>
@@ -350,10 +352,10 @@
        sending must go gray, not keep its last battery value green. -->
   <search>
     <query>index=g1-robot-data sourcetype IN ("robot:vitals","robot:health")
-| eval soc='battery.soc', hz='topic_hz.lowstate'
-| stats latest(soc) as soc, latest(hz) as hz
+| eval soc='battery.soc', cur='battery.current', hz='topic_hz.lowstate'
+| stats latest(soc) as soc, latest(cur) as cur, latest(hz) as hz
 | eval g1_cls=case(isnull(soc),"nd", soc&lt;35,"down", soc&lt;60,"warn", 1==1,"up"),
-       g1_txt=if(isnull(soc),"sin datos", tostring(round(soc,0))."% batería"),
+       g1_txt=if(isnull(soc),"sin datos", tostring(round(soc,0)).if(cur&gt;0,"% cargando","% batería")),
        dds_cls=case(isnull(hz),"nd", hz&lt;=0.1,"down", 1==1,"up"),
        dds_txt=if(isnull(hz),"DDS sin datos", "DDS ".tostring(round(hz,0))." Hz"),
        dds_dur=if(isnull(hz),"3.2", tostring(round(3.2-(min(hz,100)/100)*2.5,2)))
@@ -641,17 +643,34 @@
   <row>
     <panel>
       <title>Batería</title>
+      <!-- Under the number: charging or not, from the SIGN of battery.current — the same rule
+           the relay applies for the app (robot-command-relay battery_status): POSITIVE =
+           CHARGING, measured on the Go2 on its dock (+475 mA) and off it a minute later
+           (-5678 mA). No current is said as such, never guessed as "con batería". The color
+           stays by charge, not by charging: a robot on the dock at 8% is still at 8%. And the
+           age goes in the label because head 1 over $tr$ happily shows an hour-old reading. -->
       <single>
         <search>
           <query>index=g1-robot-data sourcetype=robot:vitals
 | head 1
-| eval soc='battery.soc'
-| fields soc</query>
+| eval soc='battery.soc', cur='battery.current', edad=now()-_time
+| eval estado=case(isnull(cur),"corriente sin dato", cur&gt;0,"cargando", 1==1,"con batería")
+| eval estado=if(edad&gt;60, estado." · lectura de hace ".tostring(round(edad,0),"duration"), estado)
+| table soc estado</query>
           <refresh>10s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
+          <done>
+            <condition match="$job.resultCount$ &gt; 0">
+              <set token="bat_estado">$result.estado$</set>
+            </condition>
+            <condition>
+              <set token="bat_estado">sin datos</set>
+            </condition>
+          </done>
         </search>
+        <option name="underLabel">$bat_estado$</option>
         <option name="drilldown">none</option>
         <option name="unit">%</option>
         <option name="rangeColors">["0xdc4e41","0xf8be34","0x53a051"]</option>

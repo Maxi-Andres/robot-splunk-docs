@@ -5,6 +5,8 @@
        del Go2: todo panel de TE filtra por este token. Si el agente se re-enrola con otro
        nombre, se cambia acá y nada mas. -->
   <init>
+    <!-- Under the Batería single until its search answers; "cargando" would read as charging. -->
+    <set token="bat_estado">—</set>
     <set token="te_agent">go2-jetson-01</set>
     <!-- El agente del Jetson corre mas de un test. Los singles y el timechart miden EL
          ENLACE DEL ROBOT; sin este token promediaban todos los tests juntos y un test
@@ -40,17 +42,34 @@
   <row>
     <panel>
       <title>Batería</title>
+      <!-- Under the number: charging or not, from the SIGN of battery.current — the same rule
+           the relay applies for the app (robot-command-relay battery_status): POSITIVE =
+           CHARGING, measured on the Go2 on its dock (+475 mA) and off it a minute later
+           (-5678 mA). No current is said as such, never guessed as "con batería". The color
+           stays by charge, not by charging: a robot on the dock at 8% is still at 8%. And the
+           age goes in the label because head 1 over $tr$ happily shows an hour-old reading. -->
       <single>
         <search>
           <query>index=go2-robot-data sourcetype=robot:vitals
 | head 1
-| eval soc='battery.soc'
-| fields soc</query>
+| eval soc='battery.soc', cur='battery.current', edad=now()-_time
+| eval estado=case(isnull(cur),"corriente sin dato", cur&gt;0,"cargando", 1==1,"con batería")
+| eval estado=if(edad&gt;60, estado." · lectura de hace ".tostring(round(edad,0),"duration"), estado)
+| table soc estado</query>
           <refresh>10s</refresh>
           <refreshType>delay</refreshType>
           <earliest>$tr.earliest$</earliest>
           <latest>$tr.latest$</latest>
+          <done>
+            <condition match="$job.resultCount$ &gt; 0">
+              <set token="bat_estado">$result.estado$</set>
+            </condition>
+            <condition>
+              <set token="bat_estado">sin datos</set>
+            </condition>
+          </done>
         </search>
+        <option name="underLabel">$bat_estado$</option>
         <option name="drilldown">none</option>
         <option name="refresh.display">progressbar</option>
         <option name="unit">%</option>
