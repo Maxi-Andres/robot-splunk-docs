@@ -18,12 +18,10 @@ regla.
 | `wlc9800-curwb.xml` | Cisco WLC 9800 + CURWB Telemetry Dashboard | Private |
 | `silk_hq_meraki.xml` | Silk HQ — Meraki | App |
 | `meraki-hq.xml` | Silk HQ — Meraki · Classic | Private |
+| `g1-telemetria-thousandeyes.xml` | Robot G1 Pro — Telemetría y ThousandEyes | sin relevar |
 
-## Versionados, todavía NO en Splunk
-
-| Archivo / vista | Título en la UI | Qué falta |
-|---|---|---|
-| `g1-telemetria-thousandeyes.xml` | Robot G1 Pro — Telemetría y ThousandEyes | subirlo; y casi todo lo que lo alimenta (abajo) |
+El del G1 figuraba como "versionado, todavía no en Splunk" hasta el 2026-10-22, cuando el
+usuario confirmó que está subido. Sharing sin relevar.
 
 ## El tablero del G1 (29/09/2026)
 
@@ -46,7 +44,8 @@ ThousandEyes filtrado por un único token `te_agent`. Lo que cambia sale de `ROA
   selector de rango: un robot que dejó de mandar tiene que ponerse gris, no quedar verde con
   el último valor.
 
-Hoy casi todo está en gris y es correcto: **no existe** `index=g1-robot-data`, ni el agente
+Al 29/09 casi todo estaba en gris y era correcto (los tests `G1 - …` se crearon el
+2026-10-05, ver `../TE-AGENTE-G1.md` §5.0): **no existe** `index=g1-robot-data`, ni el agente
 `g1-jetson-01`, ni los tests `G1 - …`, ni la cámara `g1` en Frigate. El plan y el contrato
 de datos están en `ROADMAP` §6.5 (`.claude/roadmap/G1.md`); el agente, en
 `../TE-AGENTE-G1.md`.
