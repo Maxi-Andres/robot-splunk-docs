@@ -121,7 +121,7 @@
     <!-- El agente del Jetson corre mas de un test. Los singles y el timechart miden EL
          ENLACE DEL ROBOT; sin este token promediaban todos los tests juntos y un test
          caido (cualquiera del mismo agente) ensuciaba la perdida del enlace. -->
-    <set token="te_test">Go2 - A1 - Jetson a IR1101 (interno)</set>
+    <!-- te_test: chosen in the "Test de ThousandEyes" input (fieldset), not fixed here. -->
     <!-- Prefijo del tag de TE. Los paneles de "todos los tests" filtran por nombre. -->
     <set token="te_tag">Go2</set>
     <!-- Valores por defecto del diagrama de arquitectura, hasta que respondan las busquedas. -->
@@ -430,8 +430,8 @@
 | rename "thousandeyes.source.agent.name" as agente, "thousandeyes.test.name" as test
 | where agente="$te_agent$" AND test="$te_test$"
 | stats avg(loss) as loss, avg(lat) as lat, avg(jit) as jit
-| eval te_cls=case(isnull(loss),"nd", loss&gt;5 OR lat&gt;150,"warn", 1==1,"up"),
-       te_txt=if(isnull(loss),"TE sin datos", "TE ".tostring(round(lat,0))." ms · ".tostring(round(loss,1))."% pérdida · ".tostring(round(jit,1))." ms jitter")
+| eval te_cls=case(isnull(loss),"nd", loss&gt;5 OR lat&gt;0.15,"warn", 1==1,"up"),
+       te_txt=if(isnull(loss),"TE sin datos", "TE ".tostring(round(lat*1000,0))." ms · ".tostring(round(loss,1))."% pérdida · ".tostring(round(jit,1))." ms jitter")
 | fields te_cls te_txt</query>
     <refresh>60s</refresh>
     <refreshType>delay</refreshType>
@@ -475,6 +475,27 @@
         <earliest>-60m</earliest>
         <latest>now</latest>
       </default>
+    </input>
+    <!-- 2026-10-28: the robot's link test is PICKED, not hard-coded. The single values and the
+         timechart filtered by a fixed name; when that test stopped reporting (or was never
+         created) they all read "No results" while the agent sat ONLINE. The list holds only
+         the tests this agent actually reported in the last 24 h, by name, so the robot-side
+         "A" test comes first whenever it exists. -->
+    <input type="dropdown" token="te_test" searchWhenChanged="true">
+      <label>Test de ThousandEyes</label>
+      <fieldForLabel>test</fieldForLabel>
+      <fieldForValue>test</fieldForValue>
+      <selectFirstChoice>true</selectFirstChoice>
+      <search>
+        <query>| mstats count(network.loss) as n WHERE index=thousandeyes by "thousandeyes.source.agent.name", "thousandeyes.test.name"
+| rename "thousandeyes.source.agent.name" as agente, "thousandeyes.test.name" as test
+| where agente="$te_agent$" AND n&gt;0
+| stats sum(n) as n by test
+| sort test
+| table test</query>
+        <earliest>-24h</earliest>
+        <latest>now</latest>
+      </search>
     </input>
   </fieldset>
   <!-- Loading indicator: a floating pill while the dashboard's first data is on its way.
