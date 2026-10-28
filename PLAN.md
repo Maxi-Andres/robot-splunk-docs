@@ -395,7 +395,7 @@ Está documentado en `PLAN-CONECTIVIDAD-ROBOTS.md`, que es la autoridad sobre la
 | **VPN IKEv2 IR1101 → Meraki MX (HQ)** | **Operativa** |
 | NAT del Jetson: `192.168.123.18` → `10.1.254.18` | **Operativa**, ping desde HQ OK |
 | Uplink de campo | **Starlink Mini** (bypass de CGNAT, IP SLA keepalive configurado) |
-| Contenedor ThousandEyes (IOx) en el IR1101 | RUNNING, **intocable** — ⚠️ pero el agente `LAB-IR-1101` figura **offline desde ~2026-08-22** en el portal de TE, igual que el del Jetson. Se apagaron juntos |
+| Contenedor ThousandEyes (IOx) en el IR1101 | RUNNING, **intocable** — **2026-10-28: el contenedor figuraba RUNNING pero el agente estaba offline (test Go2 A1 "Connection to target agent failed"); `app-hosting stop appid TE` + `app-hosting start appid TE` en 10.1.254.1 lo levantó en 1 min, A1 volvió a 0 % / 2 ms.** — ⚠️ pero el agente `LAB-IR-1101` figura **offline desde ~2026-08-22** en el portal de TE, igual que el del Jetson. Se apagaron juntos |
 
 Y es exactamente la forma correcta según la tesis del diseño: **el túnel lleva HTTPS, no DDS.**
 El IR1101 le da al robot un segmento L2 propio que viaja con él, con salida VPN — así que el
