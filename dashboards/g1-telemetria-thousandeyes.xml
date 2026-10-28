@@ -27,7 +27,7 @@
     <!-- Test that measures THE ROBOT'S LINK. Same convention as the Go2 (letter A = robot
          side, B = path, C = app services). These tests do not exist yet: create them in TE
          with exactly these names, or change the names here. -->
-    <!-- te_test: chosen in the "Test de ThousandEyes" input (fieldset), not fixed here. -->
+    <set token="te_test">G1 - A1 - Jetson a TE-ENTERPRISE-SILK</set>
     <set token="te_test_splk">G1 - B3 - Camino a Splunk</set>
     <set token="te_test_app">G1 - C1 - robot_executor 8090</set>
     <!-- Prefix of the "all tests" panels. The OTel stream carries no TE tags, so the tag is
@@ -449,27 +449,6 @@
         <earliest>-60m</earliest>
         <latest>now</latest>
       </default>
-    </input>
-    <!-- 2026-10-28: the robot's link test is PICKED, not hard-coded. The single values and the
-         timechart filtered by a fixed name; when that test stopped reporting (or was never
-         created) they all read "No results" while the agent sat ONLINE. The list holds only
-         the tests this agent actually reported in the last 24 h, by name, so the robot-side
-         "A" test comes first whenever it exists. -->
-    <input type="dropdown" token="te_test" searchWhenChanged="true">
-      <label>Test de ThousandEyes</label>
-      <fieldForLabel>test</fieldForLabel>
-      <fieldForValue>test</fieldForValue>
-      <selectFirstChoice>true</selectFirstChoice>
-      <search>
-        <query>| mstats count(network.loss) as n WHERE index=thousandeyes by "thousandeyes.source.agent.name", "thousandeyes.test.name"
-| rename "thousandeyes.source.agent.name" as agente, "thousandeyes.test.name" as test
-| where agente="$te_agent$" AND n&gt;0
-| stats sum(n) as n by test
-| sort test
-| table test</query>
-        <earliest>-24h</earliest>
-        <latest>now</latest>
-      </search>
     </input>
   </fieldset>
   <!-- Loading indicator: a floating pill while the dashboard's first data is on its way.
