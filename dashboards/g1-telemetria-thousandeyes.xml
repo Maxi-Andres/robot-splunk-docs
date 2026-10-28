@@ -815,11 +815,19 @@
              reader should ask for BEST_EFFORT (memory: g1-pro-frontvideostream).
              Until Frigate has a "g1" camera this image is broken on purpose: pointing it at
              "robot" would show the Go2 on the G1's board whenever the Go2 is on. -->
-        <img src="http://192.168.20.99:5000/api/$cam$?fps=5&amp;h=720" style="width:100%;max-height:800px;object-fit:contain;background:#000" alt="Cámara del G1 (Frigate, cámara g1)"/>
+        <!-- 2026-10-28: through Pilot, not Frigate. Splunk is served over https since
+             2026-10-26 (splunk.silk-technologies.com), and an https page does not load the
+             http://192.168.20.99:5000 stream; from the internet that address does not exist
+             at all. Pilot relays Frigate's MJPEG at /api/robot-mjpeg, https and signed in: the
+             viewer must have Pilot open (signed in) in the same browser — splunk. and pilot.
+             are the same site, so its session cookie goes along. REQUIRED ONCE: add
+             https://pilot.silk-technologies.com under Settings -> Server settings ->
+             Dashboards Trusted Domains. -->
+        <img src="https://pilot.silk-technologies.com/api/robot-mjpeg?robot=g1&amp;h=720" style="width:100%;max-height:800px;object-fit:contain;background:#000" alt="Cámara del G1 (Frigate, cámara g1)"/>
         <p style="margin:8px 0 0">
-          <a href="http://192.168.20.99:8889/$cam$" target="_blank">WebRTC (mínima latencia)</a>
+          <a href="https://pilot.silk-technologies.com/live" target="_blank">Pilot (en vivo, H.264)</a>
            ·
-          <a href="http://192.168.20.99:5000" target="_blank">Frigate (timeline y grabaciones)</a>
+          <a href="http://192.168.20.99:5000" target="_blank">Frigate (timeline y grabaciones, solo red interna)</a>
         </p>
       </html>
     </panel>
